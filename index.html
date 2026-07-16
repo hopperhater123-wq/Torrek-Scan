@@ -239,6 +239,7 @@
 
 <div class="wrap"><div class="bar" id="bar"></div><div id="app"></div></div>
 <input type="file" id="cam" accept="image/*" capture="environment">
+<input type="file" id="barcode" accept="image/*" capture="environment">
 
 <!-- Lokal gebündelt statt CDN: die App startet und scannt auch beim ersten Mal offline. -->
 <script src="vendor/zxing-0.21.3.min.js"></script>
@@ -379,19 +380,40 @@ async function syncen(){
 window.addEventListener("online",()=>syncen());
 
 /* ================= Kamera ================= */
-function hints(){const h=new Map();
-  h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128]);
+function hints(){const h=new Map(), F=ZXing.BarcodeFormat;
+  // Mehrere 1D-Symbologien zulassen — Geräte-Etiketten sind nicht immer CODE-128.
+  // Der onScan-Filter (nur 6–14 Ziffern) hält Fehltreffer draußen.
+  h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,
+    [F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E]);
   h.set(ZXing.DecodeHintType.TRY_HARDER,true);return h;}
+function fotoScan(){$("barcode").click();}
 function stopCam(){try{S.reader&&S.reader.reset()}catch(e){}
   if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;}
 async function startCam(){
   try{
-    S.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+    // Höhere Auflösung = schärferer Barcode = bessere Erkennung.
+    S.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},
+      width:{ideal:1920},height:{ideal:1080}}});
+    // Dauerfokus anfordern, wo unterstützt (viele Handys fokussieren sonst nicht nah genug).
+    try{const tr=S.stream.getVideoTracks()[0], caps=tr.getCapabilities&&tr.getCapabilities();
+      if(caps&&caps.focusMode&&caps.focusMode.includes("continuous"))
+        await tr.applyConstraints({advanced:[{focusMode:"continuous"}]});}catch(e){}
     const v=$("v"); v.srcObject=S.stream; await v.play();
     S.reader=new ZXing.BrowserMultiFormatReader(hints());
     S.reader.decodeFromVideoElement(v,r=>{if(r)onScan(r.getText())});
   }catch(e){ $("camerr").innerHTML=`<div class="banner red"><b>Kamera geht nicht (${esc(e.name)})</b>
     Aus WhatsApp/Mail geöffnet? Link in Safari oder Chrome öffnen. Sonst unten eintippen.</div>`; }
+}
+// Barcode aus einem Foto lesen — robuster als Live-Kamera bei schwierigen Etiketten.
+async function barcodeAusBild(f){
+  if(!f) return;
+  try{
+    const url=URL.createObjectURL(f);
+    const r=await new ZXing.BrowserMultiFormatReader(hints()).decodeFromImageUrl(url).catch(()=>null);
+    URL.revokeObjectURL(url);
+    if(r&&r.getText()) onScan(r.getText());
+    else toast("Kein Barcode auf dem Foto erkannt — näher/schärfer versuchen");
+  }catch(e){ toast("Foto konnte nicht gelesen werden"); }
 }
 // FR-SCAN-010/012/013: nur CODE-128-Ziffern übernehmen, keine Doppel,
 // im Abbau nur Geräte, die zu diesem Projekt gehören.
@@ -424,6 +446,7 @@ function toast(m){
 let photoCb=null;
 $("cam").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";
   if(f&&photoCb) photoCb(await shrink(f));};
+$("barcode").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";await barcodeAusBild(f);};
 const shrink=file=>new Promise(res=>{const img=new Image(),u=URL.createObjectURL(file);
   img.onload=()=>{const m=1200,sc=Math.min(1,m/Math.max(img.width,img.height));
     const c=document.createElement("canvas");c.width=img.width*sc;c.height=img.height*sc;
@@ -583,6 +606,7 @@ function render(){
       <p class="sub" style="text-align:center;margin:2px 0 8px">
         <b style="color:var(--tinte);font-size:19px">${rows.length}</b> erfasst${
         ab&&fehlt.length?` · <span style="color:var(--koralle)">${fehlt.length} ${nomen(fehlt.length,"fehlt","fehlen")}</span>`:""}</p>
+      <button class="btn ghost" onclick="fotoScan()">Barcode vom Foto einlesen</button>
       <button class="btn ghost" onclick="tippen()">Nummer eintippen</button>
       <button class="btn primary" onclick="go('liste')">Liste (${rows.length})</button>`;
     startCam(); return;
