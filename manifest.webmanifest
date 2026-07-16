@@ -1,13 +1,13 @@
 {
-  "name": "Torrek Scan",
-  "short_name": "Torrek Scan",
-  "description": "Bautrocknungs-Geräte scannen, Zählerstände erfassen, Excel fürs Büro.",
+  "name": "Torrek Field",
+  "short_name": "Torrek Field",
+  "description": "Bautrocknungs-Geräte erfassen, Zählerstände sichern und Excel-Listen fürs Büro erzeugen.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#14120F",
-  "theme_color": "#FBF9F5",
+  "background_color": "#090B0D",
+  "theme_color": "#090B0D",
   "lang": "de",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
