@@ -247,6 +247,49 @@ try {
     check('Büro-Archiv: exaktes Datum + Uhrzeit vom Server', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}/.test(await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '')));
     await ctx.close();
   }
+
+  // ============ Szenario F — Standort je Gerät ============
+  {
+    // F1: Aufbau speichert einen Standort → erscheint im Archiv
+    const ctxA = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctxA);
+    const pageA = await ctxA.newPage();
+    await pageA.goto(base, { waitUntil: 'load' });
+    await pageA.waitForTimeout(2600);
+    await setup(pageA, {});
+    await onScanScreen(pageA);
+    await tippen(pageA, '123456789012');
+    await pageA.waitForTimeout(400);
+    if (await pageA.$('.typen')) { await pageA.click('.typen button'); await pageA.waitForTimeout(300); }
+    await pageA.fill('input[placeholder*="Keller"]', 'Keller links');
+    for (const n of '4217') await pageA.click(`.pad button:has-text("${n}")`);
+    await pageA.click('text=Speichern');
+    await pageA.waitForTimeout(500);
+    await pageA.evaluate(() => go('archiv'));
+    await pageA.waitForTimeout(300);
+    await pageA.click('.arow');
+    await pageA.waitForTimeout(300);
+    check('Aufbau-Standort erscheint im Archiv', (await pageA.$eval('.row .id small', e => e.textContent).catch(() => '')).includes('Keller links'));
+    await ctxA.close();
+
+    // F2: Abbau-Warnung nennt den Standort des vergessenen Geräts (vom Server)
+    const ctxB = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctxB.route('**/functions/v1/**', async route => {
+      let aktion = ''; try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+      const bodies = { stammdaten: { typen: [], bekannt: {} }, erfassen: { ok: true },
+        projekt: { offen: [{ geraet_inventarnummer: '999888777666', zaehlerstand_start: 1000, standort: 'Keller links' }] } };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    });
+    const pageB = await ctxB.newPage();
+    await pageB.goto(base, { waitUntil: 'load' });
+    await pageB.waitForTimeout(2600);
+    await setup(pageB, { modus: 'abbau' });
+    await onScanScreen(pageB);
+    await pageB.click('button:has-text("Liste")');
+    await pageB.waitForTimeout(500);
+    check('Abbau-Warnung nennt den Standort', (await pageB.$eval('.banner.red', e => e.textContent.replace(/\s+/g, ' ')).catch(() => '')).includes('Keller links'));
+    await ctxB.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);
