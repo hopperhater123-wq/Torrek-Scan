@@ -118,6 +118,14 @@
   .typen button.unk{color:var(--grau);font-weight:600;border-style:dashed}
   .empty{font-size:13.5px;color:#B4AC9E;text-align:center;padding:26px 0;line-height:1.6}
   .foot{font-size:11px;color:#B4AC9E;text-align:center;margin-top:16px;line-height:1.6}
+  .arow{padding:14px 12px;border:1.5px solid var(--linie);border-radius:12px;background:var(--feld);
+    margin-bottom:10px;cursor:pointer;transition:transform .14s var(--weich),border-color .2s}
+  .arow:active{transform:scale(.99);border-color:var(--petrol)}
+  .arow .top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .arow .aid{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:800}
+  .arow .top .pill{margin-left:auto}
+  .arow .ameta{font-size:12.5px;color:var(--grau)}
+  .row .id small{display:block;color:var(--grau);font-family:inherit;font-size:11px;font-weight:600;margin-top:1px}
   button:focus-visible,input:focus-visible{outline:3px solid var(--petrol);outline-offset:2px}
 
   /* ================= Motion ================= */
@@ -293,14 +301,28 @@ DB.cget=async(k)=>{const r=await tx("cache","readonly",s=>s.get(k));return r?r.v
 /* ================= Zustand ================= */
 let S={screen:"setup",cfg:{code:"",projekt:"",mieter:"",modus:"aufbau"},
        rows:[],pending:null,buf:"",reader:null,stream:null,offen:[],sync:false,
-       typen:[],bekannt:{},zurueck:false};
+       typen:[],bekannt:{},zurueck:false,archivSel:null};
 const $=id=>document.getElementById(id), bar=$("bar"), app=$("app");
 const fmt=n=>Number(n).toLocaleString("de-DE",{maximumFractionDigits:0});
 const esc=s=>String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
 const heute=()=>new Date().toLocaleDateString("de-DE");
+// Exakter Zeitpunkt einer Erfassung — auf Tag und Uhrzeit genau, nie „heute".
+const wann=ts=>new Date(ts).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const tag=ts=>new Date(ts).toLocaleDateString("de-DE");
 // Zähl-Nomen-Kongruenz: 1 Gerät, aber 2 Geräte. Vermeidet „1 Geräte".
 const nomen=(n,ein,mehr)=>n===1?ein:mehr;
 const meine=()=>S.rows.filter(r=>r.projekt===S.cfg.projekt&&r.modus===S.cfg.modus);
+// Alle Erfassungen zu Projekt+Modus (für das Archiv), chronologisch.
+const rowsFuer=(p,m)=>S.rows.filter(r=>r.projekt===p&&r.modus===m).sort((a,b)=>a.ts-b.ts);
+// Verlauf: alle je erfassten Listen dieses Geräts, gruppiert nach Projekt+Modus.
+function archivGruppen(){
+  const g={};
+  for(const r of S.rows){const k=r.projekt+"|"+r.modus;
+    (g[k]||(g[k]={projekt:r.projekt,modus:r.modus,mieter:r.mieter,rows:[]})).rows.push(r);}
+  return Object.values(g).map(x=>{const ts=x.rows.map(r=>r.ts);
+    x.von=Math.min(...ts); x.bis=Math.max(...ts); x.n=x.rows.length; return x;})
+    .sort((a,b)=>b.bis-a.bis);
+}
 
 /* ================= Server ================= */
 async function ruf(body){
@@ -409,36 +431,42 @@ const shrink=file=>new Promise(res=>{const img=new Image(),u=URL.createObjectURL
     res(c.toDataURL("image/jpeg",0.7))};img.src=u;});
 
 /* ================= Excel ================= */
-function wb(){
-  const ab=S.cfg.modus==="abbau", rows=meine();
-  const a=[["Geräteliste – Bautrocknung"],["Projektnummer:",S.cfg.projekt],["Datum:",heute()],
-           ["Mieter:",S.cfg.mieter],[]];
+// Parameterisiert nach Projekt+Modus, damit auch archivierte Listen exportierbar
+// sind. Datum je Zeile = echter Erfassungs-Tag (r.ts), nicht „heute".
+function wbFuer(projekt,modus,mieter){
+  const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
+  const listenTag=rows.length?tag(rows[0].ts):heute();
+  const a=[["Geräteliste – Bautrocknung"],["Projektnummer:",projekt],["Datum:",listenTag],
+           ["Mieter:",mieter],[]];
   a.push(ab?["Nr.","Gerät","Datum","Mieter","kWh Auf","kWh Ab","Differenz"]
            :["Nr.","Gerät","Datum","Mieter","kWh","Auf","Ab"]);
-  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,heute(),S.cfg.mieter,r.auf??"",r.wert,r.diff??""]
-                              :[i+1,r.code,heute(),S.cfg.mieter,r.wert,"X",""]));
+  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,tag(r.ts),mieter,r.auf??"",r.wert,r.diff??""]
+                              :[i+1,r.code,tag(r.ts),mieter,r.wert,"X",""]));
   if(ab){const s=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
     a.push([]);a.push(["","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
   const ws=XLSX.utils.aoa_to_sheet(a);
   ws["!cols"]=[{wch:5},{wch:16},{wch:12},{wch:14},{wch:11},{wch:11},{wch:11}];
   const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Geräteliste");return b;
 }
-const fname=()=>`Geraeteliste_${S.cfg.projekt.replace(/\s+/g,"")}_${S.cfg.modus==="abbau"?"Abbau":"Aufbau"}.xlsx`;
+const wb=()=>wbFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter);
+const fnameFuer=(projekt,modus)=>`Geraeteliste_${String(projekt).replace(/\s+/g,"")}_${modus==="abbau"?"Abbau":"Aufbau"}.xlsx`;
 // FR-SCAN-050/052: Excel als Zettel fürs Büro — teilen, sonst Download.
-async function senden(){
-  const ab=S.cfg.modus==="abbau", rows=meine();
+async function sendenFuer(projekt,modus,mieter){
+  const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
   const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
-  const betreff=`Geräteliste ${S.cfg.projekt} — ${ab?"Abbau":"Aufbau"} ${heute()}`;
-  const text=`Projekt: ${S.cfg.projekt}\nMieter: ${S.cfg.mieter}\nGeräte: ${rows.length}\n`+
+  const listenTag=rows.length?tag(rows[0].ts):heute();
+  const betreff=`Geräteliste ${projekt} — ${ab?"Abbau":"Aufbau"} ${listenTag}`;
+  const text=`Projekt: ${projekt}\nMieter: ${mieter}\nGeräte: ${rows.length}\n`+
     (ab?`Gesamtverbrauch: ${fmt(+sum.toFixed(2))} kWh\n`:"");
   try{
-    const out=XLSX.write(wb(),{bookType:"xlsx",type:"array"});
-    const file=new File([out],fname(),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const out=XLSX.write(wbFuer(projekt,modus,mieter),{bookType:"xlsx",type:"array"});
+    const file=new File([out],fnameFuer(projekt,modus),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
     if(navigator.canShare&&navigator.canShare({files:[file]}))
       return void await navigator.share({files:[file],title:betreff,text});
   }catch(e){}
-  XLSX.writeFile(wb(),fname());
+  XLSX.writeFile(wbFuer(projekt,modus,mieter),fnameFuer(projekt,modus));
 }
+async function senden(){ return sendenFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter); }
 
 function zaehlHoch(el,ziel){
   if(!el) return;
@@ -476,7 +504,46 @@ function render(){
         <button aria-pressed="${themePref()==='light'}" onclick="setTheme('light')">Hell</button>
         <button aria-pressed="${themePref()==='dark'}" onclick="setTheme('dark')">Dunkel</button></div>
       <button class="btn primary" onclick="los()">Loslegen</button>
+      ${S.rows.length?`<button class="btn ghost" onclick="go('archiv')">Frühere Listen ansehen</button>`:""}
       ${offenN?`<p class="foot">${offenN} ${nomen(offenN,"Erfassung wartet","Erfassungen warten")} noch aufs Senden.</p>`:""}`;
+    return;
+  }
+
+  if(S.screen==="archiv"){
+    bar.innerHTML=`<button class="back" onclick="zurueck('setup')">‹</button><span class="crumb">Frühere Listen</span>`;
+    const gr=archivGruppen();
+    app.innerHTML=`<h1 style="font-size:22px">Frühere Listen</h1>
+      <p class="sub">Alles, was auf diesem Gerät erfasst wurde — auch abgeschlossene. Projektnummer eintippen zum Filtern.</p>
+      <input type="text" id="archivsuche" placeholder="Projektnummer suchen" oninput="filterArchiv(this.value)">
+      ${gr.length?`<div id="archivliste">`+gr.map(x=>`
+        <div class="arow" data-p="${esc(x.projekt)}" onclick="oeffneArchiv('${esc(x.projekt)}','${x.modus}')">
+          <div class="top"><span class="aid">${esc(x.projekt)}</span>
+            <span class="pill ${x.modus==='abbau'?'ab':''}">${x.modus==='abbau'?'Abbau':'Aufbau'}</span></div>
+          <div class="ameta">${esc(x.mieter||'—')} · ${x.n} ${nomen(x.n,'Gerät','Geräte')} · ${tag(x.von)}${tag(x.von)!==tag(x.bis)?' – '+tag(x.bis):''}</div>
+        </div>`).join("")+`</div>`
+        :`<p class="empty">Auf diesem Gerät wurde noch nichts erfasst.</p>`}`;
+    return;
+  }
+
+  if(S.screen==="archivDetail"){
+    const sel=S.archivSel||{}, av=sel.modus==="abbau", rows=rowsFuer(sel.projekt,sel.modus);
+    bar.innerHTML=`<button class="back" onclick="zurueck('archiv')">‹</button>
+      <span class="crumb">${esc(sel.projekt)}</span><span class="pill ${av?"ab":""}">${av?"Abbau":"Aufbau"}</span>`;
+    const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
+    const vonTag=rows.length?tag(rows[0].ts):"—", bisTag=rows.length?tag(rows[rows.length-1].ts):"—";
+    app.innerHTML=`
+      <p class="meta"><b>Projekt</b> ${esc(sel.projekt)}<br><b>Mieter</b> ${esc(sel.mieter||'—')}<br>
+        <b>Erfasst</b> ${vonTag}${vonTag!==bisTag?' – '+bisTag:''}<br><b>Geräte</b> ${rows.length}</p>
+      ${av?`<div class="total"><div class="cap">Verbrauch gesamt</div>
+        <div class="big">${fmt(+sum.toFixed(2))}<span>kWh</span></div></div>`:""}
+      ${rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
+        <span class="idx">${i+1}</span>
+        <span class="id">${esc(r.code)}<small>${wann(r.ts)}</small></span>
+        <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
+          r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
+        <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
+          <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
+      <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>`;
     return;
   }
 
@@ -601,6 +668,13 @@ function sichereSetupFelder(){const c=$("c"),p=$("p"),mm=$("m");
 function setModus(m){sichereSetupFelder();S.cfg.modus=m;render();}
 function go(s){stopCam();S.screen=s;render()}
 function zurueck(s){S.zurueck=true;go(s)}
+// Archiv: eine frühere Liste öffnen, live filtern (ohne Re-Render), erneut exportieren.
+function oeffneArchiv(p,m){const g=archivGruppen().find(x=>x.projekt===p&&x.modus===m);
+  S.archivSel={projekt:p,modus:m,mieter:g?g.mieter:""};go("archivDetail");}
+function filterArchiv(q){q=(q||"").toLowerCase();
+  document.querySelectorAll("#archivliste .arow").forEach(el=>{
+    el.style.display=el.dataset.p.toLowerCase().includes(q)?"":"none";});}
+function exportArchiv(){const s=S.archivSel;if(s)sendenFuer(s.projekt,s.modus,s.mieter);}
 // FR-SCAN-001/002: Setup einmal ausfüllen; ohne Code/Projekt kein Start.
 async function los(){
   S.cfg.code=$("c").value.trim(); S.cfg.projekt=$("p").value.trim(); S.cfg.mieter=$("m").value.trim();

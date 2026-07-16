@@ -135,6 +135,16 @@ try {
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });
     check('Excel-Workbook baut ohne Fehler (Aufbau)', excelOk);
 
+    // Archiv: erfasste Liste erscheint und Detail zeigt exaktes Datum + Uhrzeit
+    await page.evaluate(() => go('archiv'));
+    await page.waitForTimeout(400);
+    const aids = await page.$$eval('.arow .aid', els => els.map(e => e.textContent.trim()));
+    check('Archiv listet die erfasste Liste', aids.includes('2026 033996'));
+    await page.click('.arow');
+    await page.waitForTimeout(300);
+    const dt = await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '');
+    check('Archiv-Detail zeigt exaktes Datum + Uhrzeit', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/.test(dt));
+
     await ctx.close();
   }
 
