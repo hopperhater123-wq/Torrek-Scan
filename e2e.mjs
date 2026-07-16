@@ -208,6 +208,8 @@ try {
     await page.waitForTimeout(300);
     check('Umschalten auf Dunkel wirkt', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'dark');
     check('Theme-Wechsel behält getippte Felder', (await page.inputValue('#p')) === '2026 000111');
+    const inpRgb = (await page.evaluate(() => getComputedStyle(document.getElementById('p')).color)).match(/\d+/g).map(Number);
+    check('Dunkel: Eingabetext ist hell (lesbar)', inpRgb[0] > 150 && inpRgb[1] > 150 && inpRgb[2] > 150);
     await ctx.close();
   }
 } catch (e) {
