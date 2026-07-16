@@ -1,8 +1,12 @@
 /* Torrek Scan — Service Worker
-   Cacht die App-Shell und die lokal gebündelten Libs, damit die App auch beim
-   ersten Start ohne Netz läuft und installierbar ist. Die Edge Function wird
-   NIE gecacht — Sync geht immer ans echte Netz; offline puffert die App selbst. */
-const CACHE = "torrek-scan-v1";
+   Strategie:
+   - Navigationen (HTML): NETWORK-FIRST — online immer die frische App, offline
+     aus dem Cache. So kommen Updates ohne Cache-Version-Springen beim Nutzer an.
+   - Statische Assets (Libs, Icon, Manifest): CACHE-FIRST — schnell und offline,
+     die Dateien sind über ihren Namen versioniert.
+   - Die Edge Function wird NIE gecacht — Sync geht immer ans echte Netz;
+     offline puffert die App selbst (IndexedDB). */
+const CACHE = "torrek-scan-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -26,15 +30,26 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   const r = e.request;
-  // Nur GETs anfassen. Die Sync-POSTs an die Edge Function laufen unberührt durch.
-  if (r.method !== "GET") return;
+  if (r.method !== "GET") return;               // Sync-POSTs unberührt durchlassen
   const url = new URL(r.url);
-  // Fremd-Origin (z. B. Supabase) nicht cachen.
-  if (url.origin !== location.origin) return;
+  if (url.origin !== location.origin) return;    // Fremd-Origin (Supabase) nicht anfassen
+
+  // HTML/Navigation: erst Netz (frisch), dann Cache (offline).
+  if (r.mode === "navigate" || r.destination === "document") {
+    e.respondWith(
+      fetch(r).then(res => {
+        const cp = res.clone(); caches.open(CACHE).then(c => c.put(r, cp));
+        return res;
+      }).catch(() => caches.match(r).then(hit => hit || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // Assets: erst Cache, dann Netz (und nachcachen).
   e.respondWith(
     caches.match(r).then(hit => hit || fetch(r).then(res => {
       if (res.ok) { const cp = res.clone(); caches.open(CACHE).then(c => c.put(r, cp)); }
       return res;
-    }).catch(() => caches.match("./index.html")))
+    }))
   );
 });

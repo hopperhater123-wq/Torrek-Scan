@@ -243,7 +243,7 @@ const ruhig = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Service Worker: App-Shell + Libs cachen → offline lauffähig und installierbar.
 if("serviceWorker" in navigator)
-  addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+  addEventListener("load",()=>navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{}));
 
 /* ================= Darstellung (Hell/Dunkel) =================
    Voreinstellung „auto" folgt dem System; „light"/"dark" erzwingen. */
