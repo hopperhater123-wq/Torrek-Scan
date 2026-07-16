@@ -312,17 +312,21 @@ const wann=ts=>new Date(ts).toLocaleString("de-DE",{day:"2-digit",month:"2-digit
 const tag=ts=>new Date(ts).toLocaleDateString("de-DE");
 // Zähl-Nomen-Kongruenz: 1 Gerät, aber 2 Geräte. Vermeidet „1 Geräte".
 const nomen=(n,ein,mehr)=>n===1?ein:mehr;
-const meine=()=>S.rows.filter(r=>r.projekt===S.cfg.projekt&&r.modus===S.cfg.modus);
+// Gelöschte Zeilen (Papierkorb) sind überall ausgeblendet — außer im Papierkorb selbst.
+const meine=()=>S.rows.filter(r=>r.projekt===S.cfg.projekt&&r.modus===S.cfg.modus&&!r.geloescht);
 // Alle Erfassungen zu Projekt+Modus (für das Archiv), chronologisch.
-const rowsFuer=(p,m)=>S.rows.filter(r=>r.projekt===p&&r.modus===m).sort((a,b)=>a.ts-b.ts);
-// Verlauf: alle je erfassten Listen dieses Geräts, gruppiert nach Projekt+Modus.
-function archivGruppen(){
+const rowsFuer=(p,m)=>S.rows.filter(r=>r.projekt===p&&r.modus===m&&!r.geloescht).sort((a,b)=>a.ts-b.ts);
+// Verlauf: Listen dieses Geräts, gruppiert nach Projekt+Modus. geloescht=true → Papierkorb.
+function archivGruppen(geloescht=false){
   const g={};
-  for(const r of S.rows){const k=r.projekt+"|"+r.modus;
+  for(const r of S.rows){
+    if(!!r.geloescht!==geloescht) continue;
+    const k=r.projekt+"|"+r.modus;
     (g[k]||(g[k]={projekt:r.projekt,modus:r.modus,mieter:r.mieter,rows:[]})).rows.push(r);}
   return Object.values(g).map(x=>{const ts=x.rows.map(r=>r.ts);
-    x.von=Math.min(...ts); x.bis=Math.max(...ts); x.n=x.rows.length; return x;})
-    .sort((a,b)=>b.bis-a.bis);
+    x.von=Math.min(...ts); x.bis=Math.max(...ts); x.n=x.rows.length;
+    x.geloeschtAm=geloescht?Math.max(...x.rows.map(r=>r.geloescht||0)):0; return x;})
+    .sort((a,b)=>geloescht?b.geloeschtAm-a.geloeschtAm:b.bis-a.bis);
 }
 
 /* ================= Server ================= */
@@ -360,7 +364,7 @@ const brauchtTyp=code=>!S.bekannt[code];
 async function syncen(){
   if(S.sync||!navigator.onLine) return;
   S.sync=true; render();
-  for(const r of S.rows.filter(x=>x.status!=="synced")){
+  for(const r of S.rows.filter(x=>x.status!=="synced"&&!x.geloescht)){
     try{
       const j=await ruf({aktion:"erfassen",code:r.code,projektnummer:r.projekt,mieter:r.mieter,
         modus:r.modus,kwh:r.wert,foto:r.foto||null,local_id:r.local_id,
@@ -522,7 +526,7 @@ function zaehlHoch(el,ziel){
 /* ================= Screens ================= */
 function render(){
   const ab=S.cfg.modus==="abbau", rows=meine();
-  const offenN=S.rows.filter(r=>r.status!=="synced").length;
+  const offenN=S.rows.filter(r=>r.status!=="synced"&&!r.geloescht).length;
   const netz=!navigator.onLine?`<span class="net off">offline</span>`
     :offenN?`<span class="net q">${S.sync?"sendet…":offenN+" offen"}</span>`:`<span class="net">gesichert</span>`;
   const pill=`<span class="pill ${ab?"ab":""}">${ab?"Abbau":"Aufbau"}</span>`;
@@ -552,7 +556,7 @@ function render(){
 
   if(S.screen==="archiv"){
     bar.innerHTML=`<button class="back" onclick="zurueck('setup')">‹</button><span class="crumb">Frühere Listen</span>`;
-    const gr=archivGruppen();
+    const gr=archivGruppen(), weg=archivGruppen(true);
     app.innerHTML=`<h1 style="font-size:22px">Frühere Listen</h1>
       <p class="sub">Alles, was auf diesem Gerät erfasst wurde — auch abgeschlossene. Projektnummer eintippen zum Filtern.</p>
       <input type="text" id="archivsuche" placeholder="Projektnummer suchen" oninput="filterArchiv(this.value)">
@@ -564,7 +568,26 @@ function render(){
             <span class="pill ${x.modus==='abbau'?'ab':''}">${x.modus==='abbau'?'Abbau':'Aufbau'}</span></div>
           <div class="ameta">${esc(x.mieter||'—')} · ${x.n} ${nomen(x.n,'Gerät','Geräte')} · ${tag(x.von)}${tag(x.von)!==tag(x.bis)?' – '+tag(x.bis):''}</div>
         </div>`).join("")+`</div>`
-        :`<p class="empty">Auf diesem Gerät wurde noch nichts erfasst.</p>`}`;
+        :`<p class="empty">Auf diesem Gerät wurde noch nichts erfasst.</p>`}
+      ${weg.length?`<button class="btn ghost" onclick="go('papierkorb')">Papierkorb (${weg.length})</button>`:""}`;
+    return;
+  }
+
+  if(S.screen==="papierkorb"){
+    bar.innerHTML=`<button class="back" onclick="zurueck('archiv')">‹</button><span class="crumb">Papierkorb</span>`;
+    const gr=archivGruppen(true);
+    app.innerHTML=`<h1 style="font-size:22px">Papierkorb</h1>
+      <p class="sub">Gelöschte Listen — wiederherstellen oder endgültig entfernen.</p>
+      ${gr.length?gr.map(x=>`
+        <div class="arow" data-p="${esc(x.projekt)}" style="cursor:default">
+          <div class="top"><span class="aid">${esc(x.projekt)}</span>
+            <span class="pill ${x.modus==='abbau'?'ab':''}">${x.modus==='abbau'?'Abbau':'Aufbau'}</span></div>
+          <div class="ameta">${esc(x.mieter||'—')} · ${x.n} ${nomen(x.n,'Gerät','Geräte')} · gelöscht ${tag(x.geloeschtAm)}</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn ghost" style="margin:0;flex:1;padding:11px" onclick="listeWiederherstellen('${esc(x.projekt)}','${x.modus}')">Wiederherstellen</button>
+            <button class="btn ghost" style="margin:0;flex:1;padding:11px;color:var(--koralle);border-color:var(--koralle)" onclick="listeEndgueltig('${esc(x.projekt)}','${x.modus}')">Endgültig</button>
+          </div></div>`).join("")
+        :`<p class="empty">Papierkorb ist leer.</p>`}`;
     return;
   }
 
@@ -586,7 +609,9 @@ function render(){
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
         <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
           <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
-      <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>`;
+      <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>
+      <button class="btn ghost" style="color:var(--koralle);border-color:var(--koralle)"
+        onclick="listeLoeschen('${esc(sel.projekt)}','${sel.modus}')">Liste löschen</button>`;
     return;
   }
 
@@ -698,7 +723,7 @@ function render(){
         :`<p class="empty">Noch nichts gescannt.</p>`}
       <button class="btn go" onclick="go('scan')">Weiter scannen</button>
       <button class="btn primary" onclick="go('senden')" ${rows.length?"":"disabled"}>Abschließen</button>
-      ${S.rows.some(r=>r.status!=="synced")?`<button class="btn ghost" onclick="syncen()">Jetzt senden</button>`:""}`;
+      ${S.rows.some(r=>r.status!=="synced"&&!r.geloescht)?`<button class="btn ghost" onclick="syncen()">Jetzt senden</button>`:""}`;
     return;
   }
 
@@ -745,6 +770,27 @@ function filterArchiv(q){q=(q||"").toLowerCase();
   document.querySelectorAll("#archivliste .arow").forEach(el=>{
     el.style.display=el.dataset.p.toLowerCase().includes(q)?"":"none";});}
 function exportArchiv(){const s=S.archivSel;if(s)sendenFuer(s.projekt,s.modus,s.mieter);}
+// Löschen mit Warnung → in den Papierkorb (rückgängig machbar).
+function listeLoeschen(p,m){
+  const g=archivGruppen().find(x=>x.projekt===p&&x.modus===m), n=g?g.n:0;
+  if(!confirm(`Liste „${p}" (${m==="abbau"?"Abbau":"Aufbau"}) mit ${n} ${nomen(n,"Gerät","Geräten")} löschen?\n\nSie wandert in den Papierkorb und lässt sich dort wiederherstellen.`)) return;
+  const ts=Date.now();
+  S.rows.forEach(r=>{ if(r.projekt===p&&r.modus===m&&!r.geloescht){ r.geloescht=ts; DB.put(r); } });
+  toast("Liste gelöscht — im Papierkorb wiederherstellbar");
+  go("archiv");
+}
+function listeWiederherstellen(p,m){
+  S.rows.forEach(r=>{ if(r.projekt===p&&r.modus===m&&r.geloescht){ r.geloescht=null; DB.put(r); } });
+  toast("Liste wiederhergestellt"); render();
+}
+// Endgültig entfernen — mit zweiter, klarer Warnung (nicht umkehrbar).
+function listeEndgueltig(p,m){
+  const g=archivGruppen(true).find(x=>x.projekt===p&&x.modus===m), n=g?g.n:0;
+  if(!confirm(`Liste „${p}" ENDGÜLTIG löschen? ${n} ${nomen(n,"Gerät","Geräten")}.\n\nDas kann NICHT rückgängig gemacht werden.`)) return;
+  S.rows.filter(r=>r.projekt===p&&r.modus===m&&r.geloescht).forEach(r=>DB.del(r.local_id));
+  S.rows=S.rows.filter(r=>!(r.projekt===p&&r.modus===m&&r.geloescht));
+  toast("Endgültig gelöscht"); render();
+}
 // Büro-Archiv: Projektnummer geräteübergreifend am Server nachschlagen (aktion "verlauf").
 async function serverSuche(){
   const q=($("archivsuche")?.value||"").trim();

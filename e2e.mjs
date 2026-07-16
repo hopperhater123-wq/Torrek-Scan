@@ -290,6 +290,43 @@ try {
     check('Abbau-Warnung nennt den Standort', (await pageB.$eval('.banner.red', e => e.textContent.replace(/\s+/g, ' ')).catch(() => '')).includes('Keller links'));
     await ctxB.close();
   }
+
+  // ============ Szenario G — Liste löschen (Warnung) + Papierkorb (Wiederherstellen) ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(500);
+    await page.evaluate(() => go('archiv'));
+    await page.waitForTimeout(300);
+    check('Vor Löschen: Liste im Archiv', (await page.$$('#archivliste .arow')).length >= 1);
+    await page.click('.arow');
+    await page.waitForTimeout(300);
+    page.once('dialog', d => d.accept());   // Warnung „wirklich löschen?" bestätigen
+    await page.click('text=Liste löschen');
+    await page.waitForTimeout(400);
+    check('Nach Löschen: Papierkorb-Button erscheint', await page.$('button:has-text("Papierkorb (")') !== null);
+    check('Nach Löschen: Archiv-Liste leer', (await page.$$('#archivliste .arow')).length === 0);
+    // Eindeutiger Button-Selektor: der Toast enthält ebenfalls „Papierkorb",
+    // daher würde ein reiner Text-Selektor mehrdeutig treffen (Strict-Mode).
+    await page.click('button:has-text("Papierkorb (")');
+    await page.waitForTimeout(300);
+    await page.click('button:has-text("Wiederherstellen")');
+    await page.waitForTimeout(400);
+    await page.evaluate(() => go('archiv'));
+    await page.waitForTimeout(300);
+    check('Wiederhergestellt: Liste zurück im Archiv', (await page.$$('#archivliste .arow')).length >= 1);
+    await ctx.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);
