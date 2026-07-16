@@ -170,6 +170,8 @@ try {
     if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(400); }
     check('Abbau: Aufbau-Startstand wird angezeigt', (await page.$eval('.banner.amber', e => e.textContent).catch(() => '')).includes('1.000'));
     for (const n of '900') await page.click(`.pad button:has-text("${n}")`);
+    // Neu (#3): kleiner-als-Aufbau löst eine Plausibilitäts-Rückfrage aus — bestätigen.
+    page.once('dialog', d => d.accept());
     await page.click('text=Speichern');
     await page.waitForTimeout(800);
     await page.click('button:has-text("Liste")');
@@ -325,6 +327,63 @@ try {
     await page.evaluate(() => go('archiv'));
     await page.waitForTimeout(300);
     check('Wiederhergestellt: Liste zurück im Archiv', (await page.$$('#archivliste .arow')).length >= 1);
+    await ctx.close();
+  }
+
+  // ============ Szenario H — Tippfehler-Warnung beim Zählerstand ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    // 7-stelliger Wert (≥ 1.000.000) → Plausibilitäts-Rückfrage
+    for (const n of '1234567') await page.click(`.pad button:has-text("${n}")`);
+    let gefragt = false;
+    page.once('dialog', d => { gefragt = true; d.accept(); });
+    await page.click('text=Speichern');
+    await page.waitForTimeout(500);
+    check('Zählerstand: unplausibler Wert fragt nach', gefragt);
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(500);
+    check('Zählerstand: nach Bestätigung gespeichert', (await crumb(page)) === '1 Gerät');
+    await ctx.close();
+  }
+
+  // ============ Szenario I — Taschenlampe (Knopf da, kein Absturz ohne Kamera) ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    check('Scanner: Taschenlampen-Knopf vorhanden', await page.$('#torchbtn') !== null);
+    await page.click('#torchbtn');   // ohne echte Kamera → Hinweis-Toast statt Absturz
+    await page.waitForTimeout(300);
+    check('Taschenlampe: App bleibt bedienbar', await page.$('.stage') !== null);
+    await ctx.close();
+  }
+
+  // ============ Szenario J — Projektnummer per Scan ins Feld ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    check('Setup: Projektnummer-Scan-Knopf vorhanden', await page.$('text=Projektnummer scannen') !== null);
+    // Dekodierten Code einspeisen → füllt das Projektfeld (ohne echte Kamera)
+    await page.evaluate(() => verarbeiteScan('2026 424242', 'projekt'));
+    await page.waitForTimeout(200);
+    check('Projektnummer-Scan füllt das Feld', (await page.inputValue('#p')) === '2026 424242');
+    check('Projektnummer-Scan behält Leerzeichen (kein Ziffernfilter)', (await page.inputValue('#p')).includes(' '));
     await ctx.close();
   }
 } catch (e) {

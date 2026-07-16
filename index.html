@@ -562,11 +562,32 @@ function hints(){const h=new Map(), F=ZXing.BarcodeFormat;
   h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,
     [F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E]);
   h.set(ZXing.DecodeHintType.TRY_HARDER,true);return h;}
+// Ziel des nächsten Foto-Scans: "geraet" (Etikettennummer) oder "projekt"
+// (Projektnummer im Setup). Wird pro Klick gesetzt und nach dem Lesen
+// im onchange sofort zurückgesetzt, damit nie ein Scan falsch landet.
+let scanZiel="geraet";
 // Vor dem Foto-Lesen die Live-Kamera stoppen — sonst laufen Kamera UND
 // Foto-Dekodierung gleichzeitig und sprengen den Speicher.
-function fotoScan(){stopCam();$("barcode").click();}
+function fotoScan(){scanZiel="geraet";stopCam();$("barcode").click();}
+// Roadmap #2: Projektnummer per Barcode statt tippen — verhindert Zahlendreher
+// im kritischen Schlüssel zwischen Aufbau und Abbau.
+function scanProjekt(){sichereSetupFelder();scanZiel="projekt";$("barcode").click();}
 function stopCam(){try{S.reader&&S.reader.reset()}catch(e){}
-  if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;}
+  if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;S.torch=false;}
+// Roadmap #4: Taschenlampe für dunkle Keller. Nutzt die torch-Fähigkeit der
+// Kamera (nicht überall vorhanden) — wenn nicht, ehrlicher Hinweis statt Fehler.
+async function toggleTorch(){
+  const tr=S.stream&&S.stream.getVideoTracks&&S.stream.getVideoTracks()[0];
+  if(!tr){ toast("Kamera ist gerade nicht aktiv"); return; }
+  const caps=tr.getCapabilities?tr.getCapabilities():null;
+  if(!caps||!caps.torch){ toast("Dieses Gerät hat keine schaltbare Taschenlampe"); return; }
+  try{
+    S.torch=!S.torch;
+    await tr.applyConstraints({advanced:[{torch:S.torch}]});
+    const b=$("torchbtn"); if(b) b.textContent=S.torch?"Licht aus":"Licht an";
+    if(navigator.vibrate&&!ruhig) navigator.vibrate(8);
+  }catch(e){ S.torch=false; toast("Taschenlampe ließ sich nicht schalten"); }
+}
 async function startCam(){
   try{
     // Standard-Auflösung (kein Zwang) — schont Speicher auf schwächeren Handys.
@@ -584,7 +605,7 @@ async function startCam(){
 // Barcode aus einem Foto lesen — robuster als Live-Kamera bei schwierigen Etiketten.
 // SPEICHERSPARSAM: mit createImageBitmap direkt verkleinert dekodieren (kein
 // Voll-Megapixel-Bitmap), Kamera ist vorher gestoppt. Sonst stürzt die App ab.
-async function barcodeAusBild(f){
+async function barcodeAusBild(f,ziel="geraet"){
   if(!f) return;
   toast("Foto wird gelesen …");
   try{
@@ -604,10 +625,24 @@ async function barcodeAusBild(f){
     src.close&&src.close();
     const durl=cv.toDataURL("image/jpeg",0.85);
     const r=await new ZXing.BrowserMultiFormatReader(hints()).decodeFromImageUrl(durl).catch(()=>null);
-    if(r&&r.getText()){ onScan(r.getText()); return; }
+    if(r&&r.getText()){ verarbeiteScan(r.getText(),ziel); return; }
     toast("Kein Barcode erkannt — gerade, nah, gutes Licht");
   }catch(e){ toast("Foto konnte nicht gelesen werden"); }
   if(S.screen==="scan") render();               // Live-Kamera wieder starten
+}
+// Ein gelesener Code geht je nach Ziel an die Geräte-Erfassung (onScan) oder
+// füllt im Setup die Projektnummer. Getrennt gehalten, damit der strenge
+// Ziffernfilter von onScan nicht die (auch mal alphanumerische) Projektnummer verwirft.
+function verarbeiteScan(text,ziel){
+  if(ziel==="projekt"){
+    const p=(text||"").trim();
+    if(!p){ toast("Nichts erkannt — bitte erneut"); return; }
+    S.cfg.projekt=p;
+    const el=$("p"); if(el) el.value=p;      // Feld direkt füllen, kein Re-Render
+    toast("Projektnummer übernommen: "+p);
+    return;
+  }
+  onScan(text);
 }
 // FR-SCAN-010/012/013: nur CODE-128-Ziffern übernehmen, keine Doppel,
 // im Abbau nur Geräte, die zu diesem Projekt gehören.
@@ -640,7 +675,9 @@ function toast(m){
 let photoCb=null;
 $("cam").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";
   if(f&&photoCb) photoCb(await shrink(f));};
-$("barcode").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";await barcodeAusBild(f);};
+$("barcode").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";
+  const ziel=scanZiel; scanZiel="geraet";     // pro Klick, danach sofort zurück auf Standard
+  await barcodeAusBild(f,ziel);};
 const shrink=file=>new Promise(res=>{const img=new Image(),u=URL.createObjectURL(file);
   img.onload=()=>{const m=1200,sc=Math.min(1,m/Math.max(img.width,img.height));
     const c=document.createElement("canvas");c.width=img.width*sc;c.height=img.height*sc;
@@ -713,6 +750,7 @@ function render(){
       <p class="sub">Einmal ausfüllen, gilt für alle Geräte.</p>
       <label>Zugangscode</label><input type="text" id="c" value="${esc(S.cfg.code)}" placeholder="vom Büro">
       <label>Projektnummer</label><input type="text" id="p" value="${esc(S.cfg.projekt)}" placeholder="2026 033996">
+      <button class="btn ghost" style="margin:-6px 0 22px" onclick="scanProjekt()">Projektnummer scannen</button>
       <label>Mieter</label><input type="text" id="m" value="${esc(S.cfg.mieter)}" placeholder="Wimmer">
       <label>Was machst du heute?</label>
       <div class="seg">
@@ -760,7 +798,7 @@ function render(){
           <div class="ameta">${esc(x.mieter||'—')} · ${x.n} ${nomen(x.n,'Gerät','Geräte')} · gelöscht ${tag(x.geloeschtAm)}</div>
           <div style="display:flex;gap:8px;margin-top:10px">
             <button class="btn ghost" style="margin:0;flex:1;padding:11px" onclick="listeWiederherstellen('${esc(x.projekt)}','${x.modus}')">Wiederherstellen</button>
-            <button class="btn ghost" style="margin:0;flex:1;padding:11px;color:var(--koralle);border-color:var(--koralle)" onclick="listeEndgueltig('${esc(x.projekt)}','${x.modus}')">Endgültig</button>
+            <button class="btn ghost" style="margin:0;flex:1;padding:11px;color:var(--rot);border-color:var(--rot)" onclick="listeEndgueltig('${esc(x.projekt)}','${x.modus}')">Endgültig</button>
           </div></div>`).join("")
         :`<p class="empty">Papierkorb ist leer.</p>`}`;
     return;
@@ -785,7 +823,7 @@ function render(){
         <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
           <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
       <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>
-      <button class="btn ghost" style="color:var(--koralle);border-color:var(--koralle)"
+      <button class="btn ghost" style="color:var(--rot);border-color:var(--rot)"
         onclick="listeLoeschen('${esc(sel.projekt)}','${sel.modus}')">Liste löschen</button>`;
     return;
   }
@@ -823,8 +861,9 @@ function render(){
       <p class="scancap">Code 128 · 12-stellige Etikettennummer</p>
       <div id="camerr"></div>
       <p class="sub" style="text-align:center;margin:2px 0 8px">
-        <b style="color:var(--tinte);font-size:19px">${rows.length}</b> erfasst${
-        ab&&fehlt.length?` · <span style="color:var(--koralle)">${fehlt.length} ${nomen(fehlt.length,"fehlt","fehlen")}</span>`:""}</p>
+        <b style="color:var(--acid);font-size:19px">${rows.length}</b> erfasst${
+        ab&&fehlt.length?` · <span style="color:var(--rot)">${fehlt.length} ${nomen(fehlt.length,"fehlt","fehlen")}</span>`:""}</p>
+      <button id="torchbtn" class="btn ghost" onclick="toggleTorch()">Licht an</button>
       <button class="btn ghost" onclick="fotoScan()">Barcode vom Foto einlesen</button>
       <button class="btn ghost" onclick="tippen()">Nummer eintippen</button>
       <button class="btn primary" onclick="go('liste')">Liste (${rows.length})</button>`;
@@ -837,7 +876,7 @@ function render(){
       <span class="crumb">Neues Gerät</span>${pill}`;
     // Leerzustand: ist die Typenliste (noch) nicht geladen — typischer Offline-Fall —
     // führen wir statt einer leeren Auswahl klar zum Weiter-ohne-Typ.
-    app.innerHTML=`<span class="chip"><span class="dot" style="background:var(--petrol)"></span>${esc(S.pending.code)}</span>
+    app.innerHTML=`<span class="chip"><span class="dot" style="background:var(--cyan)"></span>${esc(S.pending.code)}</span>
       <h1 style="font-size:21px">Was ist das für ein Gerät?</h1>
       <p class="sub" style="margin-bottom:16px">${hatTypen
         ? "Steht noch nicht im Bestand. Einmal antippen — beim nächsten Mal fragt die App nicht mehr."
@@ -1036,11 +1075,25 @@ function waehleTyp(id){
   if(id) S.bekannt[S.pending.code]=id;      // lokal sofort, Server beim Sync
   go("wert");
 }
+// FR-SCAN-033 (Roadmap #3): Tippfehler-Bremse. Vor dem Speichern bei
+// unplausiblem Zählerstand einmal klar nachfragen — fängt den häufigsten
+// Fehler ab (eine Ziffer zu viel) und die falsche Richtung im Abbau.
+// Kein Verbot: der Monteur kann bestätigen, wenn der Wert doch stimmt.
+function unplausibel(v,auf,modus){
+  if(modus==="abbau"&&auf!=null){
+    if(v<auf) return `Der neue Stand ${fmt(v)} kWh ist kleiner als der Aufbau-Stand ${fmt(auf)} kWh. Ein Zähler zählt normalerweise nur hoch.`;
+    if(v-auf>50000) return `Sehr großer Verbrauch: ${fmt(v-auf)} kWh (Aufbau ${fmt(auf)} → jetzt ${fmt(v)}). Eine Ziffer zu viel?`;
+  }
+  if(v>=1000000) return `Ungewöhnlich hoher Zählerstand: ${fmt(v)} kWh. Eine Ziffer zu viel?`;
+  return null;
+}
 // FR-SCAN-030/031/032: ganze kWh speichern, im Abbau Differenz zum
 // Startstand bilden und bei negativer Differenz warnen.
 async function uebernehmen(){
   const v=parseInt(S.buf,10); if(isNaN(v))return;
   const auf=refWert(S.pending.code);
+  const warn=unplausibel(v,auf,S.cfg.modus);
+  if(warn&&!confirm(warn+"\n\nStimmt der Wert wirklich — trotzdem speichern?")) return;
   const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,foto:S.pending.foto||null,
     geraetetyp_id:S.pending.geraetetyp_id||null,standort:(S.pending.standort||"").trim()||null,
     projekt:S.cfg.projekt,mieter:S.cfg.mieter,modus:S.cfg.modus,status:"pending",ts:Date.now()};
