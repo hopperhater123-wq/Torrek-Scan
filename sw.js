@@ -6,7 +6,7 @@
      die Dateien sind über ihren Namen versioniert.
    - Die Edge Function wird NIE gecacht — Sync geht immer ans echte Netz;
      offline puffert die App selbst (IndexedDB). */
-const CACHE = "torrek-scan-v6";
+const CACHE = "torrek-scan-v7";
 const ASSETS = [
   "./",
   "./index.html",

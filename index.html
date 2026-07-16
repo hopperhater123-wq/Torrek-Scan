@@ -386,15 +386,15 @@ function hints(){const h=new Map(), F=ZXing.BarcodeFormat;
   h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,
     [F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E]);
   h.set(ZXing.DecodeHintType.TRY_HARDER,true);return h;}
-function fotoScan(){$("barcode").click();}
+// Vor dem Foto-Lesen die Live-Kamera stoppen — sonst laufen Kamera UND
+// Foto-Dekodierung gleichzeitig und sprengen den Speicher.
+function fotoScan(){stopCam();$("barcode").click();}
 function stopCam(){try{S.reader&&S.reader.reset()}catch(e){}
   if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;}
 async function startCam(){
   try{
-    // Sparsame Auflösung (720p-Wunsch, kein Zwang) — genug für Barcodes,
-    // aber schont Speicher/Akku auf schwächeren Handys.
-    S.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},
-      width:{ideal:1280},height:{ideal:720}}});
+    // Standard-Auflösung (kein Zwang) — schont Speicher auf schwächeren Handys.
+    S.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
     // Dauerfokus anfordern, wo unterstützt (kostet keinen Speicher).
     try{const tr=S.stream.getVideoTracks()[0], caps=tr.getCapabilities&&tr.getCapabilities();
       if(caps&&caps.focusMode&&caps.focusMode.includes("continuous"))
@@ -406,25 +406,32 @@ async function startCam(){
     Aus WhatsApp/Mail geöffnet? Link in Safari oder Chrome öffnen. Sonst unten eintippen.</div>`; }
 }
 // Barcode aus einem Foto lesen — robuster als Live-Kamera bei schwierigen Etiketten.
-// WICHTIG: Foto zuerst stark verkleinern (Handy-Fotos haben viele Megapixel),
-// sonst frisst das Dekodieren den Speicher und die App stürzt ab.
+// SPEICHERSPARSAM: mit createImageBitmap direkt verkleinert dekodieren (kein
+// Voll-Megapixel-Bitmap), Kamera ist vorher gestoppt. Sonst stürzt die App ab.
 async function barcodeAusBild(f){
   if(!f) return;
   toast("Foto wird gelesen …");
   try{
-    const img=new Image(), url=URL.createObjectURL(f);
-    await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error("laden"));img.src=url;});
-    URL.revokeObjectURL(url);
-    const m=1400, sc=Math.min(1,m/Math.max(img.width,img.height));
+    const cap=1000;
+    let src=null;
+    try{ src=await createImageBitmap(f,{resizeWidth:cap,resizeQuality:"medium"}); }catch(e){}
+    if(!src){                                   // Fallback ohne createImageBitmap-Resize
+      const img=new Image(), url=URL.createObjectURL(f);
+      await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(0);img.src=url;});
+      URL.revokeObjectURL(url); src=img;
+    }
+    const sw=src.width||src.naturalWidth, sh=src.height||src.naturalHeight;
+    const sc=Math.min(1,cap/Math.max(sw,sh));
     const cv=document.createElement("canvas");
-    cv.width=Math.max(1,Math.round(img.width*sc));
-    cv.height=Math.max(1,Math.round(img.height*sc));
-    cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-    const durl=cv.toDataURL("image/jpeg",0.9);
+    cv.width=Math.max(1,Math.round(sw*sc)); cv.height=Math.max(1,Math.round(sh*sc));
+    cv.getContext("2d").drawImage(src,0,0,cv.width,cv.height);
+    src.close&&src.close();
+    const durl=cv.toDataURL("image/jpeg",0.85);
     const r=await new ZXing.BrowserMultiFormatReader(hints()).decodeFromImageUrl(durl).catch(()=>null);
-    if(r&&r.getText()) onScan(r.getText());
-    else toast("Kein Barcode auf dem Foto erkannt — näher/schärfer versuchen");
+    if(r&&r.getText()){ onScan(r.getText()); return; }
+    toast("Kein Barcode erkannt — gerade, nah, gutes Licht");
   }catch(e){ toast("Foto konnte nicht gelesen werden"); }
+  if(S.screen==="scan") render();               // Live-Kamera wieder starten
 }
 // FR-SCAN-010/012/013: nur CODE-128-Ziffern übernehmen, keine Doppel,
 // im Abbau nur Geräte, die zu diesem Projekt gehören.
