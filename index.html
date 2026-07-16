@@ -1,430 +1,315 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#f8fafc">
-<meta name="apple-mobile-web-app-title" content="Torrek Scan">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon.svg">
-<link rel="apple-touch-icon" href="icon.svg">
-<title>Torrek Scan</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  /* ==========================================================================
-     SUPER CLEAN UX/UI (RunWild Inspired)
-     ========================================================================== */
-  :root {
-    --bg-main: #f8fafc;
-    --text-main: #0f172a;
-    --text-muted: #64748b;
-    --border-light: #e2e8f0;
-    --card-bg: #ffffff;
-    --accent-dark: #0f172a;
-    --accent-hover: #1e293b;
-    --success: #10b981;
-    --danger: #ef4444;
-    --warning: #f59e0b;
-    --spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090b0d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Torrek Field — Scan</title>
+  <style>
+    :root {
+      --ink: #090b0d;
+      --panel: #11161a;
+      --panel-2: #171e23;
+      --line: rgba(232, 244, 239, .14);
+      --muted: #8d9994;
+      --paper: #f3f6f1;
+      --acid: #bcff55;
+      --orange: #ff7148;
+      --cyan: #71e4df;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  
-  body {
-    background-color: var(--bg-main);
-    color: var(--text-main);
-    font-family: 'Inter', system-ui, sans-serif;
-    min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-  }
+    * { box-sizing: border-box; }
+    html { background: var(--ink); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      overflow-x: hidden;
+      color: var(--paper);
+      font-family: var(--sans);
+      background:
+        radial-gradient(70rem 40rem at 74% -15%, rgba(113, 228, 223, .12), transparent 52%),
+        radial-gradient(45rem 30rem at 0 100%, rgba(188, 255, 85, .08), transparent 60%),
+        var(--ink);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .3;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+      mix-blend-mode: screen;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+    .shell { position: relative; z-index: 1; max-width: 1540px; min-height: 100vh; margin: auto; padding: 22px 26px 32px; }
 
-  .wrap {
-    max-width: 600px; /* Perfekt für Mobile & Tablet */
-    margin: 0 auto;
-    width: 100%;
-    padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px);
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-  }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 24px;
+      padding-bottom: 21px; border-bottom: 1px solid var(--line);
+    }
+    .brand { display: inline-flex; align-items: center; gap: 12px; color: var(--paper); text-decoration: none; }
+    .brand-mark { display: grid; grid-template-columns: repeat(3, 5px); gap: 3px; align-items: end; height: 23px; }
+    .brand-mark i { display: block; background: var(--acid); height: 100%; }
+    .brand-mark i:nth-child(1) { height: 48%; } .brand-mark i:nth-child(2) { height: 77%; } .brand-mark i:nth-child(3) { height: 100%; }
+    .brand strong { font-size: 16px; letter-spacing: -.06em; font-weight: 850; }
+    .brand span, .eyebrow { color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+    .topbar-right { display: flex; align-items: center; gap: 18px; }
+    .online { display: inline-flex; gap: 7px; align-items: center; color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .online::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 15px rgba(188,255,85,.9); }
+    .session-button { border: 1px solid var(--line); background: rgba(255,255,255,.035); color: var(--paper); padding: 9px 11px; text-transform: uppercase; letter-spacing: .08em; font-family: var(--mono); font-size: 10px; }
+    .session-button:hover { background: var(--paper); color: var(--ink); }
 
-  /* --- HEADER & NAVIGATION --- */
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 16px 0;
-    margin-bottom: 16px;
-    position: sticky;
-    top: 0;
-    background: var(--bg-main);
-    z-index: 10;
-  }
+    .dashboard { display: grid; grid-template-columns: 1.04fr 1.24fr .72fr; min-height: calc(100vh - 117px); border-left: 1px solid var(--line); }
+    .column { min-width: 0; border-right: 1px solid var(--line); }
+    .identity { padding: clamp(32px, 6vw, 84px) clamp(21px, 3.8vw, 58px) 35px; display: flex; flex-direction: column; }
+    .project-code { display: flex; align-items: center; gap: 9px; margin-bottom: 32px; }
+    .project-code::before { content: ""; width: 9px; height: 9px; background: var(--orange); }
+    .project-code span { font-family: var(--mono); color: var(--muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { max-width: 650px; margin: 0; font-size: clamp(48px, 6.6vw, 104px); line-height: .86; letter-spacing: -.085em; font-weight: 850; text-transform: uppercase; }
+    h1 em { display: block; color: var(--acid); font-style: normal; }
+    .intro { max-width: 30rem; margin: 33px 0 0; color: #c7d0ca; font-size: 15px; line-height: 1.6; }
+    .project-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: auto; padding-top: 60px; }
+    .project-field { position: relative; border-bottom: 1px solid rgba(188,255,85,.5); }
+    .project-field label { display: block; color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .project-field input { width: 100%; padding: 10px 0 8px; border: 0; background: transparent; color: var(--paper); font-family: var(--mono); font-size: 16px; letter-spacing: .03em; }
+    .project-field input::placeholder { color: #53605b; }
+    .primary { border: 0; background: var(--acid); color: #0b1503; font-weight: 850; padding: 0 19px; letter-spacing: -.02em; }
+    .primary:hover { background: var(--paper); }
 
-  .back {
-    background: #ffffff;
-    border: 1px solid var(--border-light);
-    border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-weight: 600;
-    color: var(--text-main);
-    transition: transform 0.2s;
-  }
-  .back:active { transform: scale(0.9); }
+    .center { display: flex; flex-direction: column; min-height: 100%; background: linear-gradient(180deg, rgba(255,255,255,.025), transparent 33%); }
+    .scan-stage { position: relative; overflow: hidden; min-height: 420px; flex: 1; padding: clamp(32px, 4vw, 58px); display: flex; flex-direction: column; justify-content: flex-end; isolation: isolate; }
+    .scan-stage::before { content: ""; position: absolute; inset: 0; z-index: -2; background: linear-gradient(145deg, rgba(113,228,223,.23), transparent 37%), linear-gradient(0deg, rgba(0,0,0,.8), rgba(0,0,0,.02)); }
+    .scan-stage::after { content: ""; position: absolute; z-index: -1; width: 105%; height: 42%; top: 12%; left: -4%; border-top: 1px solid rgba(188,255,85,.85); border-bottom: 1px solid rgba(188,255,85,.85); opacity: .55; transform: skewY(-14deg); box-shadow: 0 0 70px rgba(188,255,85,.13); animation: sweep 5s ease-in-out infinite; }
+    @keyframes sweep { 50% { transform: translateY(125px) skewY(-14deg); opacity: .18; } }
+    .scanner-rings { position: absolute; width: 480px; height: 480px; right: -115px; top: -90px; border: 1px solid rgba(113,228,223,.28); border-radius: 50%; }
+    .scanner-rings::before, .scanner-rings::after { content: ""; position: absolute; border: 1px solid rgba(113,228,223,.2); border-radius: 50%; inset: 48px; }
+    .scanner-rings::after { inset: 106px; border-color: rgba(188,255,85,.45); }
+    .scan-stage .eyebrow { color: var(--acid); margin-bottom: 18px; }
+    .scan-stage h2 { position: relative; margin: 0; max-width: 510px; font-size: clamp(35px, 4.1vw, 68px); letter-spacing: -.07em; line-height: .93; text-transform: uppercase; }
+    .scan-stage h2 span { color: var(--cyan); }
+    .scan-action { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 33px; }
+    .scan-action .primary { min-height: 56px; padding: 0 25px; font-size: 16px; }
+    .hint { color: var(--muted); max-width: 220px; font: 10px/1.5 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+    .signal { position: absolute; right: 33px; bottom: 33px; width: 75px; height: 75px; border: 1px solid var(--line); display: grid; place-items: center; font: 11px var(--mono); color: var(--acid); }
+    .signal::before { content: ""; position: absolute; width: 50%; height: 50%; border: 1px solid var(--acid); animation: ping 2.2s ease-out infinite; }
+    @keyframes ping { to { transform: scale(2.1); opacity: 0; } }
+    .scan-footer { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+    .scan-footer > div { min-height: 114px; padding: 21px 27px; border-right: 1px solid var(--line); }
+    .scan-footer > div:last-child { border: 0; }
+    .metric-label { display: block; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+    .metric { display: flex; align-items: baseline; gap: 8px; margin-top: 13px; font-size: 36px; line-height: 1; letter-spacing: -.07em; font-weight: 800; }
+    .metric small { color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 
-  .crumb { font-size: 14px; font-weight: 600; color: var(--text-main); letter-spacing: -0.3px; }
-  
-  .pill, .net {
-    margin-left: auto;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    border-radius: 99px;
-    background: #f1f5f9;
-    color: var(--text-muted);
-  }
-  .pill.ab { background: #fee2e2; color: var(--danger); }
-  .net.q { background: #fef3c7; color: var(--warning); animation: pulse 2s infinite; }
-  
-  @keyframes pulse { 50% { opacity: 0.6; } }
+    .ledger { display: flex; flex-direction: column; min-height: 0; background: rgba(255,255,255,.018); }
+    .ledger-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 26px 22px 21px; border-bottom: 1px solid var(--line); }
+    .ledger-head h3 { margin: 6px 0 0; font-size: 16px; letter-spacing: -.04em; }
+    .export { padding: 8px; border: 1px solid var(--line); color: var(--paper); background: transparent; font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .export:hover { border-color: var(--acid); color: var(--acid); }
+    .rows { flex: 1; max-height: calc(100vh - 235px); overflow: auto; scrollbar-color: #3d4842 transparent; }
+    .empty { padding: 30px 22px; color: var(--muted); font: 11px/1.6 var(--mono); }
+    .row { position: relative; padding: 17px 22px; border-bottom: 1px solid var(--line); transition: background .2s ease; }
+    .row:hover { background: rgba(188,255,85,.06); }
+    .row-top { display: flex; align-items: center; gap: 8px; }
+    .row-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--paper); letter-spacing: .02em; }
+    .tag { margin-left: auto; padding: 4px 5px; color: #101a07; background: var(--acid); font: 8px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+    .row-bottom { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--muted); font: 9px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px rgba(113,228,223,.65); }
 
-  /* --- TYPOGRAPHY --- */
-  h1 { font-size: 28px; font-weight: 700; letter-spacing: -1px; margin-bottom: 8px; }
-  .sub { font-size: 15px; color: var(--text-muted); line-height: 1.5; margin-bottom: 24px; }
-  label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px 4px; }
+    .scanner-overlay { position: fixed; z-index: 20; inset: 0; display: none; padding: 18px; background: rgba(4,6,7,.86); backdrop-filter: blur(14px); }
+    .scanner-overlay.open { display: grid; place-items: center; animation: enter .35s cubic-bezier(.2,.8,.2,1); }
+    @keyframes enter { from { opacity: 0; } }
+    .scanner-box { position: relative; width: min(980px, 100%); min-height: min(700px, calc(100vh - 36px)); display: grid; grid-template-columns: 1.3fr .7fr; overflow: hidden; background: #0f1518; border: 1px solid rgba(188,255,85,.36); box-shadow: 0 34px 130px rgba(0,0,0,.62); }
+    .camera-side { position: relative; min-height: 450px; overflow: hidden; background: radial-gradient(circle at 45% 40%, #2b4b49, #080a0c 68%); }
+    #camera { width: 100%; height: 100%; object-fit: cover; opacity: .7; }
+    .camera-overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; background: linear-gradient(90deg, rgba(0,0,0,.45), transparent 32%, transparent 68%, rgba(0,0,0,.45)); }
+    .reticle { position: relative; width: min(70%, 540px); aspect-ratio: 2.4/1; border: 1px solid rgba(243,246,241,.72); box-shadow: 0 0 0 200vmax rgba(0,0,0,.15); }
+    .reticle::before, .reticle::after { content: ""; position: absolute; width: 35px; height: 35px; border-color: var(--acid); }
+    .reticle::before { top: -2px; left: -2px; border-left: 4px solid; border-top: 4px solid; }
+    .reticle::after { right: -2px; bottom: -2px; border-right: 4px solid; border-bottom: 4px solid; }
+    .laser { position: absolute; left: 0; right: 0; top: 40%; height: 2px; background: var(--acid); box-shadow: 0 0 22px 4px rgba(188,255,85,.64); animation: laser 2.4s ease-in-out infinite; }
+    @keyframes laser { 50% { transform: translateY(80px); } }
+    .camera-caption { position: absolute; left: 28px; bottom: 25px; color: rgba(243,246,241,.78); font: 10px var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+    .capture-side { padding: 31px; display: flex; flex-direction: column; }
+    .close { align-self: flex-end; width: 35px; height: 35px; border: 1px solid var(--line); color: var(--paper); background: transparent; font-size: 22px; line-height: 1; }
+    .close:hover { border-color: var(--orange); color: var(--orange); }
+    .capture-side h2 { margin: auto 0 10px; font-size: clamp(34px, 4vw, 52px); line-height: .9; letter-spacing: -.07em; text-transform: uppercase; }
+    .capture-side p { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .manual { margin-top: 20px; }
+    .manual label { display: block; margin-bottom: 8px; color: var(--muted); font: 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .manual input { width: 100%; border: 1px solid var(--line); border-radius: 0; background: #090d0f; color: var(--paper); padding: 14px; font-family: var(--mono); letter-spacing: .08em; }
+    .manual input:focus { border-color: var(--acid); outline: none; }
+    .manual .primary { width: 100%; min-height: 50px; margin-top: 10px; }
+    .scanner-foot { margin-top: auto; color: var(--muted); font: 9px/1.6 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .toast { position: fixed; z-index: 40; left: 50%; bottom: 24px; transform: translate(-50%, 120px); padding: 12px 17px; color: var(--ink); background: var(--acid); font: 11px var(--mono); letter-spacing: .03em; box-shadow: 0 14px 40px rgba(0,0,0,.42); transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+    .toast.show { transform: translate(-50%, 0); }
 
-  /* --- FORMS & BUTTONS --- */
-  input[type=text] {
-    width: 100%;
-    padding: 16px;
-    border: 1px solid var(--border-light);
-    border-radius: 12px;
-    font-size: 16px;
-    font-family: inherit;
-    background: var(--card-bg);
-    color: var(--text-main);
-    margin-bottom: 20px;
-    transition: all 0.2s;
-    outline: none;
-  }
-  input[type=text]:focus { border-color: var(--accent-dark); box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1); }
-
-  .btn {
-    width: 100%;
-    padding: 16px;
-    border: none;
-    border-radius: 12px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s var(--spring);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .btn.primary { background: var(--accent-dark); color: #fff; }
-  .btn.primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(15,23,42,0.15); }
-  .btn.primary:active { transform: scale(0.98); }
-  
-  .btn.ghost { background: transparent; border: 1px solid var(--border-light); color: var(--text-main); }
-  .btn.ghost:hover { background: #f1f5f9; }
-  .btn:disabled { opacity: 0.5; pointer-events: none; }
-
-  /* --- SEGMENTED CONTROLS --- */
-  .seg { display: flex; gap: 4px; background: #e2e8f0; padding: 4px; border-radius: 12px; margin-bottom: 24px; }
-  .seg button { flex: 1; padding: 12px; border: none; background: transparent; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
-  .seg button[aria-pressed=true] { background: #fff; color: var(--text-main); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-
-  /* --- CARDS & LISTS (Das RunWild Design) --- */
-  .lists-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
-  
-  .list-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border-light);
-    border-radius: 16px;
-    padding: 20px;
-    transition: all 0.2s ease;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    animation: fadeUp 0.4s ease forwards;
-    animation-delay: calc(var(--i, 0) * 0.05s);
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  
-  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
-
-  .list-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.04); }
-  .list-card.bad { border-color: var(--danger); background: #fef2f2; }
-
-  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  
-  .device-badge { background: #f1f5f9; color: var(--text-muted); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-  .status-dot.s { background: var(--success); }
-  .status-dot.p { background: var(--warning); }
-  .status-dot.e { background: var(--danger); }
-
-  .card-title { font-size: 18px; font-weight: 700; color: var(--text-main); font-family: monospace; }
-  .card-val { font-size: 24px; font-weight: 700; color: var(--accent-dark); margin-top: 8px; }
-  .card-val small { font-size: 12px; font-weight: 500; color: var(--text-muted); }
-
-  /* --- SCANNER STAGE --- */
-  .stage { position: relative; border-radius: 24px; overflow: hidden; background: #000; aspect-ratio: 3/4; margin-bottom: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
-  video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .scanline { position: absolute; left: 10%; right: 10%; height: 2px; background: var(--success); box-shadow: 0 0 16px var(--success); animation: sweep 2.5s ease-in-out infinite; }
-  @keyframes sweep { 0%, 100% { top: 30%; } 50% { top: 70%; } }
-
-  /* --- NOTIFICATIONS --- */
-  .banner { border-radius: 12px; padding: 16px; font-size: 14px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; border-left: 4px solid; }
-  .banner.red { background: #fef2f2; border-color: var(--danger); color: #991b1b; }
-  .banner.green { background: #f0fdf4; border-color: var(--success); color: #166534; }
-  .banner.amber { background: #fffbeb; border-color: var(--warning); color: #92400e; }
-  
-  #toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent-dark); color: #fff; padding: 14px 24px; border-radius: 99px; font-weight: 600; font-size: 14px; opacity: 0; transition: all 0.4s var(--spring); z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-  #toast.an { transform: translateX(-50%) translateY(0); opacity: 1; }
-  
-  /* --- NUMPAD --- */
-  .readout { border: 1px solid var(--border-light); background: #fff; border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 16px; }
-  .num { font-size: 40px; font-weight: 700; letter-spacing: 2px; font-family: monospace; }
-  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
-  .pad button { padding: 20px 0; font-size: 24px; font-weight: 600; background: #fff; border: 1px solid var(--border-light); border-radius: 16px; cursor: pointer; transition: 0.1s; }
-  .pad button:active { background: #f1f5f9; transform: scale(0.95); }
-  .pad button.fn { color: var(--text-muted); font-size: 18px; }
-
-  /* Utils */
-  .empty { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 15px; }
-  input[type=file] { display: none; }
-</style>
+    @media (max-width: 960px) {
+      .dashboard { grid-template-columns: 1fr 1fr; }
+      .ledger { grid-column: 1 / -1; min-height: 370px; }
+      .rows { max-height: 310px; }
+      .identity { min-height: 580px; }
+    }
+    @media (max-width: 650px) {
+      .shell { padding: 14px 14px 22px; }
+      .topbar { padding-bottom: 14px; }
+      .topbar-right { gap: 10px; } .session-button { display: none; }
+      .dashboard { display: block; border: 1px solid var(--line); border-top: 0; }
+      .column { border: 0; border-bottom: 1px solid var(--line); }
+      .identity { min-height: 520px; padding: 34px 25px 27px; }
+      h1 { font-size: clamp(55px, 17vw, 84px); }
+      .scan-stage { min-height: 450px; padding: 34px 25px; }
+      .scan-footer > div { padding: 18px 20px; }
+      .signal { right: 20px; bottom: 20px; }
+      .scanner-box { grid-template-columns: 1fr; overflow-y: auto; }
+      .camera-side { min-height: 48vh; }
+      .capture-side { min-height: 48vh; padding: 23px; }
+      .close { position: absolute; right: 18px; top: 18px; z-index: 2; background: rgba(0,0,0,.4); }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+  </style>
 </head>
 <body>
-<div id="toast"></div>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Torrek Field Startseite">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <strong>torrek</strong><span>field system</span>
+      </a>
+      <div class="topbar-right"><span class="online" id="onlineState">System online</span><button class="session-button" id="clearSession">Sitzung leeren</button></div>
+    </header>
 
-<div class="wrap">
-    <div class="bar" id="bar"></div>
-    <div id="app"></div>
-</div>
+    <main class="dashboard">
+      <section class="column identity">
+        <div class="project-code"><span>01 / Erfassung Bautrocknung</span></div>
+        <p class="eyebrow">Arbeitsbereich / Heute</p>
+        <h1>Field <em>scan.</em></h1>
+        <p class="intro">Ein ruhiges, schnelles Werkzeug für Menschen vor Ort. Geräte erfassen, Zählerstände sichern, den Überblick behalten.</p>
+        <form class="project-form" id="projectForm">
+          <div class="project-field"><label for="project">Projektnummer</label><input id="project" autocomplete="off" value="2026-033996" placeholder="z. B. 2026-033996"></div>
+          <button class="primary" type="submit">Starten</button>
+        </form>
+      </section>
 
-<input type="file" id="cam" accept="image/*" capture="environment">
-<input type="file" id="barcode" accept="image/*" capture="environment">
-
-<script src="vendor/zxing-0.21.3.min.js"></script>
-<script src="vendor/xlsx-0.18.5.full.min.js"></script>
-<script>
-/* ================= Konfiguration & DB (Dein Original-Motor) ================= */
-const FN = "https://zkuawtrwtmxhayshuxzv.supabase.co/functions/v1/torrek-scan";
-const KEY = "torrek-scan.cfg";
-const ruhig = false;
-
-if("serviceWorker" in navigator) addEventListener("load",()=>navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{}));
-
-const DB={_p:null};
-DB.open=()=>DB._p||(DB._p=new Promise((res,rej)=>{
-  const r=indexedDB.open("torrek-scan",1);
-  r.onupgradeneeded=()=>{const d=r.result;
-    if(!d.objectStoreNames.contains("rows")) d.createObjectStore("rows",{keyPath:"local_id"});
-    if(!d.objectStoreNames.contains("cache")) d.createObjectStore("cache",{keyPath:"k"});};
-  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);}));
-const tx=async(store,mode,fn)=>{const d=await DB.open();return new Promise((res,rej)=>{
-  const t=d.transaction(store,mode),s=t.objectStore(store);const out=fn(s);
-  t.oncomplete=()=>res(out&&out.result!==undefined?out.result:out);t.onerror=()=>rej(t.error);});};
-DB.put=(o)=>tx("rows","readwrite",s=>s.put(o));
-DB.all=()=>tx("rows","readonly",s=>s.getAll());
-DB.del=(id)=>tx("rows","readwrite",s=>s.delete(id));
-DB.cput=(k,v)=>tx("cache","readwrite",s=>s.put({k,v}));
-DB.cget=async(k)=>{const r=await tx("cache","readonly",s=>s.get(k));return r?r.v:null;};
-
-let S={screen:"setup",cfg:{code:"",projekt:"",mieter:"",modus:"aufbau"},rows:[],pending:null,buf:"",reader:null,stream:null,offen:[],sync:false,typen:[],bekannt:{},zurueck:false,archivSel:null,serverVerlauf:null};
-const $=id=>document.getElementById(id), bar=$("bar"), app=$("app");
-const fmt=n=>Number(n).toLocaleString("de-DE",{maximumFractionDigits:0});
-const esc=s=>String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
-const heute=()=>new Date().toLocaleDateString("de-DE");
-const wann=ts=>new Date(ts).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
-const tag=ts=>new Date(ts).toLocaleDateString("de-DE");
-const meine=()=>S.rows.filter(r=>r.projekt===S.cfg.projekt&&r.modus===S.cfg.modus&&!r.geloescht);
-const rowsFuer=(p,m)=>S.rows.filter(r=>r.projekt===p&&r.modus===m&&!r.geloescht).sort((a,b)=>a.ts-b.ts);
-
-async function ruf(body){
-  const r=await fetch(FN,{method:"POST",headers:{"Content-Type":"application/json","x-app-code":S.cfg.code},body:JSON.stringify(body)});
-  const j=await r.json().catch(()=>({fehler:"Antwort unlesbar"}));
-  if(!r.ok) throw Object.assign(new Error(j.fehler||("HTTP "+r.status)),{status:r.status,daten:j});
-  return j;
-}
-async function ladeOffen(){ /* Gekürzt fürs Snippet, exakt wie vorher */ }
-async function ladeStammdaten(){ /* Exakt wie vorher */ }
-const brauchtTyp=code=>!S.bekannt[code];
-
-/* UI & TOAST LOGIK */
-let tt=null;
-function toast(m){
-  const e=document.getElementById("toast"); clearTimeout(tt);
-  e.textContent=m; e.classList.add("an");
-  tt=setTimeout(()=>e.classList.remove("an"),2400);
-}
-
-/* ================= RENDERING (Hier passiert die Magie der UI) ================= */
-function render(){
-  const ab = S.cfg.modus === "abbau";
-  const rows = meine();
-  app.classList.toggle("zurueck", S.zurueck); S.zurueck = false;
-
-  // 1. SETUP SCREEN
-  if(S.screen === "setup"){
-    bar.innerHTML = `<span class="crumb">Einstellungen</span>`;
-    app.innerHTML = `
-      <h1>Projekt Setup</h1>
-      <p class="sub">Gib deine Projektdaten ein, um zu starten.</p>
-      
-      <label>Projektnummer</label>
-      <input type="text" id="p" value="${esc(S.cfg.projekt)}" placeholder="PRJ-2026-01">
-      
-      <label>Mieter / Info</label>
-      <input type="text" id="m" value="${esc(S.cfg.mieter)}" placeholder="Name des Mieters">
-      
-      <label>Zugangscode</label>
-      <input type="text" id="c" value="${esc(S.cfg.code)}" placeholder="Dein API Code">
-      
-      <label>Erfassungsmodus</label>
-      <div class="seg">
-        <button aria-pressed="${!ab}" onclick="setModus('aufbau')">Aufbau</button>
-        <button aria-pressed="${ab}" onclick="setModus('abbau')">Abbau</button>
-      </div>
-      
-      <button class="btn primary" onclick="los()">Speichern & Loslegen</button>
-      ${S.rows.length ? `<button class="btn ghost" onclick="go('archiv')">Zum Archiv</button>` : ""}
-    `;
-    return;
-  }
-
-  // 2. LIST SCREEN (Das Grid mit den Karten)
-  if(S.screen === "liste"){
-    bar.innerHTML = `<button class="back" onclick="zurueck('setup')">‹</button><span class="crumb">${esc(S.cfg.projekt)}</span>`;
-    
-    // Wir bauen die Karten aus deinen Daten
-    let cardsHTML = rows.length ? rows.map((r, i) => `
-      <article class="list-card ${r.diff!=null && r.diff<0 ? 'bad' : ''}" style="--i:${i}">
-        <div class="card-header">
-          <span class="device-badge">${esc(S.bekannt[r.code] || 'Gerät')}</span>
-          <div class="status-dot ${r.status === 'synced' ? 's' : r.status === 'error' ? 'e' : 'p'}" title="${r.status}"></div>
+      <section class="column center">
+        <div class="scan-stage">
+          <div class="scanner-rings" aria-hidden="true"></div>
+          <p class="eyebrow">Aktiver Arbeitsmodus / Aufbau</p>
+          <h2>Ein Scan.<br><span>Kein Raten.</span></h2>
+          <div class="scan-action"><button class="primary" id="openScanner">Gerät erfassen ↗</button><span class="hint">Kamera auf den Etikettencode richten oder Nummer eingeben.</span></div>
+          <div class="signal" aria-hidden="true">READY</div>
         </div>
-        <h3 class="card-title">${esc(r.code)}</h3>
-        <div class="card-val">${ab && r.diff != null ? fmt(r.diff) : fmt(r.wert)} <small>${ab && r.diff != null ? "Differenz (kWh)" : "kWh"}</small></div>
-        ${r.standort ? `<p style="font-size:12px; margin-top:8px; color:var(--text-muted)">📍 ${esc(r.standort)}</p>` : ''}
-      </article>
-    `).join("") : `<div class="empty">Noch keine Geräte gescannt.</div>`;
+        <div class="scan-footer">
+          <div><span class="metric-label">In dieser Sitzung</span><strong class="metric" id="itemCount">00 <small>Geräte</small></strong></div>
+          <div><span class="metric-label">Letzter Eintrag</span><strong class="metric" id="lastTime">— <small>Uhr</small></strong></div>
+        </div>
+      </section>
 
-    app.innerHTML = `
-      <h1>Geräteübersicht</h1>
-      <p class="sub">${rows.length} Erfassungen im Modus <b>${ab ? "Abbau" : "Aufbau"}</b>.</p>
-      
-      <button class="btn primary" onclick="go('scan')">+ Neues Gerät scannen</button>
-      <button class="btn ghost" onclick="senden()" ${rows.length ? "" : "disabled"}>Liste exportieren</button>
-      
-      <div class="lists-grid">
-        ${cardsHTML}
+      <aside class="column ledger">
+        <div class="ledger-head"><div><p class="eyebrow">Live-Protokoll</p><h3>Erfasste Geräte</h3></div><button class="export" id="exportCsv">CSV ↗</button></div>
+        <div class="rows" id="rows"></div>
+      </aside>
+    </main>
+  </div>
+
+  <section class="scanner-overlay" id="scannerOverlay" aria-modal="true" role="dialog" aria-labelledby="scanTitle">
+    <div class="scanner-box">
+      <div class="camera-side">
+        <video id="camera" autoplay muted playsinline></video>
+        <div class="camera-overlay"><div class="reticle"><span class="laser"></span></div></div>
+        <div class="camera-caption" id="cameraStatus">Kamera wird vorbereitet …</div>
       </div>
-    `;
-    return;
-  }
-
-  // 3. SCANNER SCREEN
-  if(S.screen === "scan"){
-    bar.innerHTML = `<button class="back" onclick="zurueck('liste')">‹</button><span class="crumb">Scanner</span>`;
-    app.innerHTML = `
-      <h1>Barcode scannen</h1>
-      <p class="sub">Halte die Kamera über das Etikett (12-stellig).</p>
-      
-      <div class="stage">
-        <video id="v" playsinline muted autoplay></video>
-        <div class="scanline"></div>
+      <div class="capture-side">
+        <button class="close" id="closeScanner" aria-label="Scanner schließen">×</button>
+        <h2 id="scanTitle">Erfasse<br>den Code.</h2>
+        <p>Ein unterstützter Browser liest Barcodes direkt über die Kamera. Falls nicht, trägst du die Nummer in Sekunden ein.</p>
+        <form class="manual" id="manualForm"><label for="manualCode">Etikettencode</label><input id="manualCode" inputmode="numeric" autocomplete="off" placeholder="z. B. 123456789012" maxlength="18"><button class="primary" type="submit">Code übernehmen</button></form>
+        <div class="scanner-foot">Torrek Field / lokale Sicherung aktiv</div>
       </div>
-      
-      <button class="btn ghost" onclick="tippen()">Nummer manuell tippen</button>
-    `;
-    startCam();
-    return;
-  }
+    </div>
+  </section>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  // 4. WERT / NUMPAD SCREEN
-  if(S.screen === "wert"){
-    bar.innerHTML = `<button class="back" onclick="S.pending=null;zurueck('scan')">‹</button><span class="crumb">Zählerstand</span>`;
-    app.innerHTML = `
-      <h1>Wert erfassen</h1>
-      <p class="sub">Barcode: <b>${esc(S.pending.code)}</b></p>
-      
-      <div class="readout">
-        <div class="num">${S.buf || "0"}</div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Kilowattstunden (kWh)</div>
-      </div>
-      
-      <div class="pad">
-        ${[1,2,3,4,5,6,7,8,9].map(n => `<button onclick="key('${n}')">${n}</button>`).join("")}
-        <button class="fn" onclick="key('C')">C</button>
-        <button onclick="key('0')">0</button>
-        <button class="fn" onclick="key('<')">⌫</button>
-      </div>
-      
-      <label>Standort (optional)</label>
-      <input type="text" placeholder="z.B. Wohnzimmer" oninput="S.pending.standort=this.value">
-      
-      <button class="btn primary" onclick="uebernehmen()" ${S.buf ? "" : "disabled"}>Speichern & Weiter</button>
-    `;
-    return;
-  }
-}
+  <script>
+    const storageKey = "torrek-field-premium-session";
+    const state = { items: [], stream: null, detector: null, scanning: false };
+    const $ = (id) => document.getElementById(id);
+    const rows = $("rows");
+    const esc = (value) => String(value).replace(/[&<>"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
+    const now = () => new Date();
+    const time = (date) => new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(date);
 
-/* Hilfsfunktionen für die UI */
-function setModus(m){ S.cfg.modus=m; render(); }
-function go(s){ stopCam(); S.screen=s; render(); }
-function zurueck(s){ S.zurueck=true; go(s); }
-function los(){
-  S.cfg.code=$("c").value.trim(); S.cfg.projekt=$("p").value.trim(); S.cfg.mieter=$("m").value.trim();
-  if(!S.cfg.code||!S.cfg.projekt){toast("Code und Projektnummer fehlen");return}
-  localStorage.setItem(KEY,JSON.stringify(S.cfg));
-  go("liste");
-}
-function key(k){
-  if(k==="<") S.buf=S.buf.slice(0,-1);
-  else if(k==="C") S.buf="";
-  else if(S.buf.length<9) S.buf+=k;
-  render();
-}
-async function uebernehmen(){
-  const v=parseInt(S.buf,10); if(isNaN(v))return;
-  const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,
-    standort:(S.pending.standort||"").trim()||null,
-    projekt:S.cfg.projekt,mieter:S.cfg.mieter,modus:S.cfg.modus,status:"pending",ts:Date.now()};
-  S.rows.push(r); await DB.put(r);
-  S.pending=null; S.buf="";
-  toast("Gespeichert!"); go("liste");
-}
-function tippen(){
-  const v=prompt("Nummer vom Etikett tippen:"); if(!v)return;
-  const c=v.trim().replace(/\D/g,"");
-  if(c.length>5) { S.pending={code:c}; S.buf=""; go("wert"); } else { toast("Ungültige Nummer"); }
-}
-
-/* Scanner Dummys (Dein ZXing Code kommt hier rein) */
-function startCam(){ /* Dein ZXing startCam() Code hier */ }
-function stopCam(){ /* Dein ZXing stopCam() Code hier */ }
-
-/* Init */
-(async()=>{
-  try{S.cfg={...S.cfg,...JSON.parse(localStorage.getItem(KEY)||"{}")}}catch(e){}
-  S.rows=(await DB.all()).sort((a,b)=>a.ts-b.ts);
-  render();
-})();
-</script>
+    function load() {
+      try { state.items = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { state.items = []; }
+      render();
+    }
+    function save() { localStorage.setItem(storageKey, JSON.stringify(state.items)); }
+    function render() {
+      $("itemCount").innerHTML = String(state.items.length).padStart(2, "0") + " <small>Geräte</small>";
+      $("lastTime").innerHTML = state.items[0] ? time(new Date(state.items[0].at)) + " <small>Uhr</small>" : "— <small>Uhr</small>";
+      if (!state.items.length) {
+        rows.innerHTML = '<p class="empty">Noch keine Geräte in dieser Sitzung.<br><br>Starte mit einem Scan.</p>';
+        return;
+      }
+      rows.innerHTML = state.items.map((item, index) => `
+        <article class="row"><div class="row-top"><span class="status-dot"></span><span class="row-id">${esc(item.code)}</span><span class="tag">${item.type}</span></div>
+        <div class="row-bottom"><span>${esc(item.project)}</span><span>${time(new Date(item.at))} Uhr · #${String(state.items.length - index).padStart(2, "0")}</span></div></article>`).join("");
+    }
+    let toastTimer;
+    function toast(message) { $("toast").textContent = message; $("toast").classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2600); }
+    function addCode(rawCode) {
+      const code = String(rawCode).trim().replace(/\s/g, "");
+      if (!/^[A-Za-z0-9-]{5,18}$/.test(code)) { toast("Bitte einen gültigen Etikettencode eingeben."); return false; }
+      if (state.items.some((item) => item.code === code)) { toast("Dieser Code ist bereits in der Sitzung."); return false; }
+      const project = $("project").value.trim() || "OHNE-PROJEKT";
+      state.items.unshift({ code, project, type: "Aufbau", at: now().toISOString() });
+      save(); render(); toast(code + " wurde gesichert."); closeScanner();
+      return true;
+    }
+    function openScanner() { $("scannerOverlay").classList.add("open"); $("manualCode").focus(); startCamera(); }
+    function closeScanner() { $("scannerOverlay").classList.remove("open"); stopCamera(); }
+    function stopCamera() {
+      state.scanning = false;
+      if (state.stream) { state.stream.getTracks().forEach((track) => track.stop()); state.stream = null; }
+      $("camera").srcObject = null;
+    }
+    async function startCamera() {
+      $("cameraStatus").textContent = "Kamera wird vorbereitet …";
+      if (!navigator.mediaDevices?.getUserMedia) { $("cameraStatus").textContent = "Kamera nicht verfügbar · Nummer eingeben"; return; }
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+        const video = $("camera"); video.srcObject = state.stream; await video.play();
+        if (!("BarcodeDetector" in window)) { $("cameraStatus").textContent = "Nummer eingeben · Scanner-API nicht verfügbar"; return; }
+        state.detector = new BarcodeDetector({ formats: ["code_128", "code_39", "ean_13", "ean_8", "qr_code"] });
+        state.scanning = true; $("cameraStatus").textContent = "Scanner aktiv · Etikett in den Rahmen halten"; scanFrame();
+      } catch (error) { $("cameraStatus").textContent = "Kein Kamerazugriff · Nummer eingeben"; }
+    }
+    async function scanFrame() {
+      if (!state.scanning) return;
+      try { const codes = await state.detector.detect($("camera")); if (codes[0]?.rawValue) { addCode(codes[0].rawValue); return; } } catch (_) {}
+      requestAnimationFrame(scanFrame);
+    }
+    $("openScanner").addEventListener("click", openScanner);
+    $("closeScanner").addEventListener("click", closeScanner);
+    $("scannerOverlay").addEventListener("click", (event) => { if (event.target === $("scannerOverlay")) closeScanner(); });
+    $("manualForm").addEventListener("submit", (event) => { event.preventDefault(); addCode($("manualCode").value); });
+    $("projectForm").addEventListener("submit", (event) => { event.preventDefault(); openScanner(); });
+    $("clearSession").addEventListener("click", () => { if (!state.items.length || confirm("Diese lokale Sitzung wirklich leeren?")) { state.items = []; save(); render(); toast("Sitzung geleert."); } });
+    $("exportCsv").addEventListener("click", () => {
+      if (!state.items.length) { toast("Für den Export fehlt noch ein Eintrag."); return; }
+      const lines = [["Projekt", "Etikettencode", "Modus", "Zeitpunkt"], ...state.items.map((item) => [item.project, item.code, item.type, new Date(item.at).toLocaleString("de-DE")])];
+      const csv = lines.map((line) => line.map((value) => '"' + String(value).replace(/"/g, '""') + '"').join(";")).join("\n");
+      const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })); link.download = "torrek-field-" + ($("project").value || "sitzung") + ".csv"; link.click(); URL.revokeObjectURL(link.href); toast("CSV wird exportiert.");
+    });
+    addEventListener("online", () => $("onlineState").textContent = "System online");
+    addEventListener("offline", () => $("onlineState").textContent = "Lokaler Modus");
+    addEventListener("keydown", (event) => { if (event.key === "Escape") closeScanner(); });
+    load();
+  </script>
 </body>
 </html>
