@@ -222,6 +222,31 @@ try {
     check('Dunkel: Eingabetext ist hell (lesbar)', inpRgb[0] > 150 && inpRgb[1] > 150 && inpRgb[2] > 150);
     await ctx.close();
   }
+
+  // ============ Szenario E — Büro-Archiv (Server-Verlauf, gemockt) ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctx.route('**/functions/v1/**', async route => {
+      let aktion = ''; try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+      if (aktion === 'verlauf') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ projektnummer: '2026 000999', erfassungen: [
+          { code: '111111111111', modus: 'aufbau', kwh: 1000, differenz: null, erfasst_am: '2026-06-25T08:12:00Z', typ: 'TK-30', mieter: 'X' },
+          { code: '111111111111', modus: 'abbau', kwh: 1217, differenz: 217, erfasst_am: '2026-07-16T09:00:00Z', typ: 'TK-30', mieter: 'X' },
+        ] }) });
+      } else await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await page.evaluate(() => go('archiv'));
+    await page.waitForTimeout(300);
+    await page.fill('#archivsuche', '2026 000999');
+    await page.click('text=Büro-Archiv suchen');
+    await page.waitForTimeout(500);
+    check('Büro-Archiv: Gesamtverbrauch vom Server (217)', (await page.$eval('.total .big', e => e.textContent).catch(() => '')).includes('217'));
+    check('Büro-Archiv: exaktes Datum + Uhrzeit vom Server', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}/.test(await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '')));
+    await ctx.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);

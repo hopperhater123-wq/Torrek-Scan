@@ -301,7 +301,7 @@ DB.cget=async(k)=>{const r=await tx("cache","readonly",s=>s.get(k));return r?r.v
 /* ================= Zustand ================= */
 let S={screen:"setup",cfg:{code:"",projekt:"",mieter:"",modus:"aufbau"},
        rows:[],pending:null,buf:"",reader:null,stream:null,offen:[],sync:false,
-       typen:[],bekannt:{},zurueck:false,archivSel:null};
+       typen:[],bekannt:{},zurueck:false,archivSel:null,serverVerlauf:null};
 const $=id=>document.getElementById(id), bar=$("bar"), app=$("app");
 const fmt=n=>Number(n).toLocaleString("de-DE",{maximumFractionDigits:0});
 const esc=s=>String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
@@ -515,6 +515,8 @@ function render(){
     app.innerHTML=`<h1 style="font-size:22px">Frühere Listen</h1>
       <p class="sub">Alles, was auf diesem Gerät erfasst wurde — auch abgeschlossene. Projektnummer eintippen zum Filtern.</p>
       <input type="text" id="archivsuche" placeholder="Projektnummer suchen" oninput="filterArchiv(this.value)">
+      <button class="btn ghost" style="margin-top:2px" onclick="serverSuche()">Diese Nummer im Büro-Archiv suchen</button>
+      <p class="foot" style="margin:8px 0 4px">Büro-Archiv = geräteübergreifend vom Server (braucht Netz).</p>
       ${gr.length?`<div id="archivliste">`+gr.map(x=>`
         <div class="arow" data-p="${esc(x.projekt)}" onclick="oeffneArchiv('${esc(x.projekt)}','${x.modus}')">
           <div class="top"><span class="aid">${esc(x.projekt)}</span>
@@ -544,6 +546,29 @@ function render(){
         <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
           <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
       <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>`;
+    return;
+  }
+
+  if(S.screen==="serverArchiv"){
+    const v=S.serverVerlauf||{erfassungen:[]}, es=v.erfassungen||[];
+    bar.innerHTML=`<button class="back" onclick="zurueck('archiv')">‹</button>
+      <span class="crumb">${esc(v.projektnummer||"")}</span><span class="net q">Büro-Archiv</span>`;
+    const auf=es.filter(r=>r.modus==="aufbau"), ab=es.filter(r=>r.modus==="abbau");
+    const sum=ab.reduce((x,r)=>x+(Number(r.differenz)||0),0);
+    const block=(titel,list,istAb)=>list.length?`<h1 style="font-size:16px;margin:16px 0 2px">${titel}</h1>`+
+      list.map((r,i)=>`<div class="row ${r.differenz!=null&&r.differenz<0?"bad":""}" style="--i:${i}">
+        <span class="idx">${i+1}</span>
+        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.typ?" · "+esc(r.typ):""}</small></span>
+        <span class="val">${istAb&&r.differenz!=null?fmt(r.differenz):fmt(r.kwh)}
+          <small>${istAb&&r.differenz!=null?"Differenz":"kWh"}</small></span></div>`).join(""):"";
+    app.innerHTML=`
+      <p class="sub">Alle Erfassungen zu dieser Projektnummer — geräteübergreifend aus dem Büro-Archiv (Server).</p>
+      ${es.length?"":`<p class="empty">Keine Einträge zu dieser Nummer gefunden.</p>`}
+      ${ab.length?`<div class="total"><div class="cap">Verbrauch gesamt (Abbau)</div>
+        <div class="big">${fmt(+sum.toFixed(2))}<span>kWh</span></div></div>`:""}
+      ${block("Aufbau",auf,false)}
+      ${block("Abbau",ab,true)}
+      ${es.length?`<button class="btn primary" onclick="exportServer()">Excel erzeugen</button>`:""}`;
     return;
   }
 
@@ -675,6 +700,42 @@ function filterArchiv(q){q=(q||"").toLowerCase();
   document.querySelectorAll("#archivliste .arow").forEach(el=>{
     el.style.display=el.dataset.p.toLowerCase().includes(q)?"":"none";});}
 function exportArchiv(){const s=S.archivSel;if(s)sendenFuer(s.projekt,s.modus,s.mieter);}
+// Büro-Archiv: Projektnummer geräteübergreifend am Server nachschlagen (aktion "verlauf").
+async function serverSuche(){
+  const q=($("archivsuche")?.value||"").trim();
+  if(!q){toast("Erst eine Projektnummer eintippen");return}
+  if(!navigator.onLine){toast("Fürs Büro-Archiv brauchst du Netz");return}
+  toast("Suche im Büro-Archiv …");
+  try{
+    const j=await ruf({aktion:"verlauf",projektnummer:q});
+    S.serverVerlauf={projektnummer:q,erfassungen:j.erfassungen||[]};
+    go("serverArchiv");
+  }catch(e){
+    if(e.status===401) toast("Zugangscode fehlt oder falsch (im Setup prüfen)");
+    else if(e.status===400) toast("Server kennt die Archiv-Suche noch nicht");
+    else toast(e.message||"Suche fehlgeschlagen");
+  }
+}
+function exportServer(){
+  const v=S.serverVerlauf; if(!v||!v.erfassungen.length)return;
+  const es=v.erfassungen, mieter=(es.find(r=>r.mieter)||{}).mieter||"";
+  const a=[["Büro-Archiv – Bautrocknung"],["Projektnummer:",v.projektnummer],["Mieter:",mieter],
+           ["Erzeugt:",wann(Date.now())],[]];
+  a.push(["Nr.","Gerät","Modus","Datum/Uhrzeit","kWh","Differenz","Gerätetyp"]);
+  es.forEach((r,i)=>a.push([i+1,r.code,r.modus,wann(r.erfasst_am),r.kwh,r.differenz??"",r.typ||""]));
+  const ab=es.filter(r=>r.modus==="abbau");
+  if(ab.length){const s=ab.reduce((x,r)=>x+(Number(r.differenz)||0),0);
+    a.push([]);a.push(["","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
+  const ws=XLSX.utils.aoa_to_sheet(a);
+  ws["!cols"]=[{wch:5},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18}];
+  const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Büro-Archiv");
+  const fn=`Buero-Archiv_${String(v.projektnummer).replace(/\s+/g,"")}.xlsx`;
+  try{const out=XLSX.write(b,{bookType:"xlsx",type:"array"});
+    const file=new File([out],fn,{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))
+      return void navigator.share({files:[file],title:"Büro-Archiv "+v.projektnummer});}catch(e){}
+  XLSX.writeFile(b,fn);
+}
 // FR-SCAN-001/002: Setup einmal ausfüllen; ohne Code/Projekt kein Start.
 async function los(){
   S.cfg.code=$("c").value.trim(); S.cfg.projekt=$("p").value.trim(); S.cfg.mieter=$("m").value.trim();
