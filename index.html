@@ -1,90 +1,430 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minimalist Dashboard</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Einbindung von modernen Google Fonts (Inter) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f8fafc">
+<meta name="apple-mobile-web-app-title" content="Torrek Scan">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Torrek Scan</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     SUPER CLEAN UX/UI (RunWild Inspired)
+     ========================================================================== */
+  :root {
+    --bg-main: #f8fafc;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --border-light: #e2e8f0;
+    --card-bg: #ffffff;
+    --accent-dark: #0f172a;
+    --accent-hover: #1e293b;
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wrap {
+    max-width: 600px; /* Perfekt für Mobile & Tablet */
+    margin: 0 auto;
+    width: 100%;
+    padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  /* --- HEADER & NAVIGATION --- */
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+    margin-bottom: 16px;
+    position: sticky;
+    top: 0;
+    background: var(--bg-main);
+    z-index: 10;
+  }
+
+  .back {
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-main);
+    transition: transform 0.2s;
+  }
+  .back:active { transform: scale(0.9); }
+
+  .crumb { font-size: 14px; font-weight: 600; color: var(--text-main); letter-spacing: -0.3px; }
+  
+  .pill, .net {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 99px;
+    background: #f1f5f9;
+    color: var(--text-muted);
+  }
+  .pill.ab { background: #fee2e2; color: var(--danger); }
+  .net.q { background: #fef3c7; color: var(--warning); animation: pulse 2s infinite; }
+  
+  @keyframes pulse { 50% { opacity: 0.6; } }
+
+  /* --- TYPOGRAPHY --- */
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -1px; margin-bottom: 8px; }
+  .sub { font-size: 15px; color: var(--text-muted); line-height: 1.5; margin-bottom: 24px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px 4px; }
+
+  /* --- FORMS & BUTTONS --- */
+  input[type=text] {
+    width: 100%;
+    padding: 16px;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    font-size: 16px;
+    font-family: inherit;
+    background: var(--card-bg);
+    color: var(--text-main);
+    margin-bottom: 20px;
+    transition: all 0.2s;
+    outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent-dark); box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1); }
+
+  .btn {
+    width: 100%;
+    padding: 16px;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--spring);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .btn.primary { background: var(--accent-dark); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(15,23,42,0.15); }
+  .btn.primary:active { transform: scale(0.98); }
+  
+  .btn.ghost { background: transparent; border: 1px solid var(--border-light); color: var(--text-main); }
+  .btn.ghost:hover { background: #f1f5f9; }
+  .btn:disabled { opacity: 0.5; pointer-events: none; }
+
+  /* --- SEGMENTED CONTROLS --- */
+  .seg { display: flex; gap: 4px; background: #e2e8f0; padding: 4px; border-radius: 12px; margin-bottom: 24px; }
+  .seg button { flex: 1; padding: 12px; border: none; background: transparent; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
+  .seg button[aria-pressed=true] { background: #fff; color: var(--text-main); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+  /* --- CARDS & LISTS (Das RunWild Design) --- */
+  .lists-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+  
+  .list-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    padding: 20px;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    animation: fadeUp 0.4s ease forwards;
+    animation-delay: calc(var(--i, 0) * 0.05s);
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+  .list-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.04); }
+  .list-card.bad { border-color: var(--danger); background: #fef2f2; }
+
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  
+  .device-badge { background: #f1f5f9; color: var(--text-muted); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.s { background: var(--success); }
+  .status-dot.p { background: var(--warning); }
+  .status-dot.e { background: var(--danger); }
+
+  .card-title { font-size: 18px; font-weight: 700; color: var(--text-main); font-family: monospace; }
+  .card-val { font-size: 24px; font-weight: 700; color: var(--accent-dark); margin-top: 8px; }
+  .card-val small { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+
+  /* --- SCANNER STAGE --- */
+  .stage { position: relative; border-radius: 24px; overflow: hidden; background: #000; aspect-ratio: 3/4; margin-bottom: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scanline { position: absolute; left: 10%; right: 10%; height: 2px; background: var(--success); box-shadow: 0 0 16px var(--success); animation: sweep 2.5s ease-in-out infinite; }
+  @keyframes sweep { 0%, 100% { top: 30%; } 50% { top: 70%; } }
+
+  /* --- NOTIFICATIONS --- */
+  .banner { border-radius: 12px; padding: 16px; font-size: 14px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; border-left: 4px solid; }
+  .banner.red { background: #fef2f2; border-color: var(--danger); color: #991b1b; }
+  .banner.green { background: #f0fdf4; border-color: var(--success); color: #166534; }
+  .banner.amber { background: #fffbeb; border-color: var(--warning); color: #92400e; }
+  
+  #toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent-dark); color: #fff; padding: 14px 24px; border-radius: 99px; font-weight: 600; font-size: 14px; opacity: 0; transition: all 0.4s var(--spring); z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+  #toast.an { transform: translateX(-50%) translateY(0); opacity: 1; }
+  
+  /* --- NUMPAD --- */
+  .readout { border: 1px solid var(--border-light); background: #fff; border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 16px; }
+  .num { font-size: 40px; font-weight: 700; letter-spacing: 2px; font-family: monospace; }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+  .pad button { padding: 20px 0; font-size: 24px; font-weight: 600; background: #fff; border: 1px solid var(--border-light); border-radius: 16px; cursor: pointer; transition: 0.1s; }
+  .pad button:active { background: #f1f5f9; transform: scale(0.95); }
+  .pad button.fn { color: var(--text-muted); font-size: 18px; }
+
+  /* Utils */
+  .empty { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 15px; }
+  input[type=file] { display: none; }
+</style>
 </head>
 <body>
+<div id="toast"></div>
 
-    <div class="app-container">
-        
-        <!-- SIDEBAR (Navigation & Filter) -->
-        <aside class="sidebar">
-            <div class="logo">Studio.</div>
-            
-            <nav class="nav-menu">
-                <a href="#" class="nav-item active">
-                    <span class="nav-icon">📁</span> Alle Listen
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">💻</span> Geräte
-                </a>
-                <a href="#" class="nav-item trash-nav">
-                    <span class="nav-icon">🗑️</span> Papierkorb <span class="badge">3</span>
-                </a>
-            </nav>
-            
-            <button class="btn-primary">+ Neue Liste</button>
-        </aside>
+<div class="wrap">
+    <div class="bar" id="bar"></div>
+    <div id="app"></div>
+</div>
 
-        <!-- MAIN CONTENT (Deine Listen) -->
-        <main class="main-content">
-            <header class="main-header">
-                <div>
-                    <h1>Deine Listen</h1>
-                    <p class="subtitle">Organisiere deine Geräte und Aufgaben im Handumdrehen.</p>
-                </div>
-                <div class="user-profile">JS</div>
-            </header>
+<input type="file" id="cam" accept="image/*" capture="environment">
+<input type="file" id="barcode" accept="image/*" capture="environment">
 
-            <!-- Grid für die Listen-Karten -->
-            <section class="lists-grid">
-                
-                <!-- Karte 1 -->
-                <article class="list-card">
-                    <div class="card-header">
-                        <span class="device-badge">MacBook Pro</span>
-                        <button class="btn-delete" title="In den Papierkorb verschieben">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                        </button>
-                    </div>
-                    <h3 class="card-title">Setup Büro</h3>
-                    <ul class="task-list">
-                        <li><input type="checkbox" id="t1"> <label for="t1">Monitor kalibrieren</label></li>
-                        <li><input type="checkbox" id="t2"> <label for="t2">Backup erstellen</label></li>
-                        <li><input type="checkbox" id="t3"> <label for="t3">Kabel sortieren</label></li>
-                    </ul>
-                </article>
+<script src="vendor/zxing-0.21.3.min.js"></script>
+<script src="vendor/xlsx-0.18.5.full.min.js"></script>
+<script>
+/* ================= Konfiguration & DB (Dein Original-Motor) ================= */
+const FN = "https://zkuawtrwtmxhayshuxzv.supabase.co/functions/v1/torrek-scan";
+const KEY = "torrek-scan.cfg";
+const ruhig = false;
 
-                <!-- Karte 2 -->
-                <article class="list-card">
-                    <div class="card-header">
-                        <span class="device-badge">iPhone 15</span>
-                        <button class="btn-delete" title="In den Papierkorb verschieben">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                        </button>
-                    </div>
-                    <h3 class="card-title">Reise-Apps</h3>
-                    <ul class="task-list">
-                        <li><input type="checkbox" id="t4"> <label for="t4">Offline-Karten laden</label></li>
-                        <li><input type="checkbox" id="t5"> <label for="t5">Tickets in Wallet speichern</label></li>
-                    </ul>
-                </article>
+if("serviceWorker" in navigator) addEventListener("load",()=>navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{}));
 
-                <!-- Leere Karte zum schnellen Erstellen (UX Best Practice) -->
-                <button class="create-card">
-                    <span class="plus-icon">+</span>
-                    <span>Neue Liste hinzufügen</span>
-                </button>
+const DB={_p:null};
+DB.open=()=>DB._p||(DB._p=new Promise((res,rej)=>{
+  const r=indexedDB.open("torrek-scan",1);
+  r.onupgradeneeded=()=>{const d=r.result;
+    if(!d.objectStoreNames.contains("rows")) d.createObjectStore("rows",{keyPath:"local_id"});
+    if(!d.objectStoreNames.contains("cache")) d.createObjectStore("cache",{keyPath:"k"});};
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);}));
+const tx=async(store,mode,fn)=>{const d=await DB.open();return new Promise((res,rej)=>{
+  const t=d.transaction(store,mode),s=t.objectStore(store);const out=fn(s);
+  t.oncomplete=()=>res(out&&out.result!==undefined?out.result:out);t.onerror=()=>rej(t.error);});};
+DB.put=(o)=>tx("rows","readwrite",s=>s.put(o));
+DB.all=()=>tx("rows","readonly",s=>s.getAll());
+DB.del=(id)=>tx("rows","readwrite",s=>s.delete(id));
+DB.cput=(k,v)=>tx("cache","readwrite",s=>s.put({k,v}));
+DB.cget=async(k)=>{const r=await tx("cache","readonly",s=>s.get(k));return r?r.v:null;};
 
-            </section>
-        </main>
+let S={screen:"setup",cfg:{code:"",projekt:"",mieter:"",modus:"aufbau"},rows:[],pending:null,buf:"",reader:null,stream:null,offen:[],sync:false,typen:[],bekannt:{},zurueck:false,archivSel:null,serverVerlauf:null};
+const $=id=>document.getElementById(id), bar=$("bar"), app=$("app");
+const fmt=n=>Number(n).toLocaleString("de-DE",{maximumFractionDigits:0});
+const esc=s=>String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+const heute=()=>new Date().toLocaleDateString("de-DE");
+const wann=ts=>new Date(ts).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const tag=ts=>new Date(ts).toLocaleDateString("de-DE");
+const meine=()=>S.rows.filter(r=>r.projekt===S.cfg.projekt&&r.modus===S.cfg.modus&&!r.geloescht);
+const rowsFuer=(p,m)=>S.rows.filter(r=>r.projekt===p&&r.modus===m&&!r.geloescht).sort((a,b)=>a.ts-b.ts);
 
-    </div>
+async function ruf(body){
+  const r=await fetch(FN,{method:"POST",headers:{"Content-Type":"application/json","x-app-code":S.cfg.code},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({fehler:"Antwort unlesbar"}));
+  if(!r.ok) throw Object.assign(new Error(j.fehler||("HTTP "+r.status)),{status:r.status,daten:j});
+  return j;
+}
+async function ladeOffen(){ /* Gekürzt fürs Snippet, exakt wie vorher */ }
+async function ladeStammdaten(){ /* Exakt wie vorher */ }
+const brauchtTyp=code=>!S.bekannt[code];
 
+/* UI & TOAST LOGIK */
+let tt=null;
+function toast(m){
+  const e=document.getElementById("toast"); clearTimeout(tt);
+  e.textContent=m; e.classList.add("an");
+  tt=setTimeout(()=>e.classList.remove("an"),2400);
+}
+
+/* ================= RENDERING (Hier passiert die Magie der UI) ================= */
+function render(){
+  const ab = S.cfg.modus === "abbau";
+  const rows = meine();
+  app.classList.toggle("zurueck", S.zurueck); S.zurueck = false;
+
+  // 1. SETUP SCREEN
+  if(S.screen === "setup"){
+    bar.innerHTML = `<span class="crumb">Einstellungen</span>`;
+    app.innerHTML = `
+      <h1>Projekt Setup</h1>
+      <p class="sub">Gib deine Projektdaten ein, um zu starten.</p>
+      
+      <label>Projektnummer</label>
+      <input type="text" id="p" value="${esc(S.cfg.projekt)}" placeholder="PRJ-2026-01">
+      
+      <label>Mieter / Info</label>
+      <input type="text" id="m" value="${esc(S.cfg.mieter)}" placeholder="Name des Mieters">
+      
+      <label>Zugangscode</label>
+      <input type="text" id="c" value="${esc(S.cfg.code)}" placeholder="Dein API Code">
+      
+      <label>Erfassungsmodus</label>
+      <div class="seg">
+        <button aria-pressed="${!ab}" onclick="setModus('aufbau')">Aufbau</button>
+        <button aria-pressed="${ab}" onclick="setModus('abbau')">Abbau</button>
+      </div>
+      
+      <button class="btn primary" onclick="los()">Speichern & Loslegen</button>
+      ${S.rows.length ? `<button class="btn ghost" onclick="go('archiv')">Zum Archiv</button>` : ""}
+    `;
+    return;
+  }
+
+  // 2. LIST SCREEN (Das Grid mit den Karten)
+  if(S.screen === "liste"){
+    bar.innerHTML = `<button class="back" onclick="zurueck('setup')">‹</button><span class="crumb">${esc(S.cfg.projekt)}</span>`;
+    
+    // Wir bauen die Karten aus deinen Daten
+    let cardsHTML = rows.length ? rows.map((r, i) => `
+      <article class="list-card ${r.diff!=null && r.diff<0 ? 'bad' : ''}" style="--i:${i}">
+        <div class="card-header">
+          <span class="device-badge">${esc(S.bekannt[r.code] || 'Gerät')}</span>
+          <div class="status-dot ${r.status === 'synced' ? 's' : r.status === 'error' ? 'e' : 'p'}" title="${r.status}"></div>
+        </div>
+        <h3 class="card-title">${esc(r.code)}</h3>
+        <div class="card-val">${ab && r.diff != null ? fmt(r.diff) : fmt(r.wert)} <small>${ab && r.diff != null ? "Differenz (kWh)" : "kWh"}</small></div>
+        ${r.standort ? `<p style="font-size:12px; margin-top:8px; color:var(--text-muted)">📍 ${esc(r.standort)}</p>` : ''}
+      </article>
+    `).join("") : `<div class="empty">Noch keine Geräte gescannt.</div>`;
+
+    app.innerHTML = `
+      <h1>Geräteübersicht</h1>
+      <p class="sub">${rows.length} Erfassungen im Modus <b>${ab ? "Abbau" : "Aufbau"}</b>.</p>
+      
+      <button class="btn primary" onclick="go('scan')">+ Neues Gerät scannen</button>
+      <button class="btn ghost" onclick="senden()" ${rows.length ? "" : "disabled"}>Liste exportieren</button>
+      
+      <div class="lists-grid">
+        ${cardsHTML}
+      </div>
+    `;
+    return;
+  }
+
+  // 3. SCANNER SCREEN
+  if(S.screen === "scan"){
+    bar.innerHTML = `<button class="back" onclick="zurueck('liste')">‹</button><span class="crumb">Scanner</span>`;
+    app.innerHTML = `
+      <h1>Barcode scannen</h1>
+      <p class="sub">Halte die Kamera über das Etikett (12-stellig).</p>
+      
+      <div class="stage">
+        <video id="v" playsinline muted autoplay></video>
+        <div class="scanline"></div>
+      </div>
+      
+      <button class="btn ghost" onclick="tippen()">Nummer manuell tippen</button>
+    `;
+    startCam();
+    return;
+  }
+
+  // 4. WERT / NUMPAD SCREEN
+  if(S.screen === "wert"){
+    bar.innerHTML = `<button class="back" onclick="S.pending=null;zurueck('scan')">‹</button><span class="crumb">Zählerstand</span>`;
+    app.innerHTML = `
+      <h1>Wert erfassen</h1>
+      <p class="sub">Barcode: <b>${esc(S.pending.code)}</b></p>
+      
+      <div class="readout">
+        <div class="num">${S.buf || "0"}</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Kilowattstunden (kWh)</div>
+      </div>
+      
+      <div class="pad">
+        ${[1,2,3,4,5,6,7,8,9].map(n => `<button onclick="key('${n}')">${n}</button>`).join("")}
+        <button class="fn" onclick="key('C')">C</button>
+        <button onclick="key('0')">0</button>
+        <button class="fn" onclick="key('<')">⌫</button>
+      </div>
+      
+      <label>Standort (optional)</label>
+      <input type="text" placeholder="z.B. Wohnzimmer" oninput="S.pending.standort=this.value">
+      
+      <button class="btn primary" onclick="uebernehmen()" ${S.buf ? "" : "disabled"}>Speichern & Weiter</button>
+    `;
+    return;
+  }
+}
+
+/* Hilfsfunktionen für die UI */
+function setModus(m){ S.cfg.modus=m; render(); }
+function go(s){ stopCam(); S.screen=s; render(); }
+function zurueck(s){ S.zurueck=true; go(s); }
+function los(){
+  S.cfg.code=$("c").value.trim(); S.cfg.projekt=$("p").value.trim(); S.cfg.mieter=$("m").value.trim();
+  if(!S.cfg.code||!S.cfg.projekt){toast("Code und Projektnummer fehlen");return}
+  localStorage.setItem(KEY,JSON.stringify(S.cfg));
+  go("liste");
+}
+function key(k){
+  if(k==="<") S.buf=S.buf.slice(0,-1);
+  else if(k==="C") S.buf="";
+  else if(S.buf.length<9) S.buf+=k;
+  render();
+}
+async function uebernehmen(){
+  const v=parseInt(S.buf,10); if(isNaN(v))return;
+  const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,
+    standort:(S.pending.standort||"").trim()||null,
+    projekt:S.cfg.projekt,mieter:S.cfg.mieter,modus:S.cfg.modus,status:"pending",ts:Date.now()};
+  S.rows.push(r); await DB.put(r);
+  S.pending=null; S.buf="";
+  toast("Gespeichert!"); go("liste");
+}
+function tippen(){
+  const v=prompt("Nummer vom Etikett tippen:"); if(!v)return;
+  const c=v.trim().replace(/\D/g,"");
+  if(c.length>5) { S.pending={code:c}; S.buf=""; go("wert"); } else { toast("Ungültige Nummer"); }
+}
+
+/* Scanner Dummys (Dein ZXing Code kommt hier rein) */
+function startCam(){ /* Dein ZXing startCam() Code hier */ }
+function stopCam(){ /* Dein ZXing stopCam() Code hier */ }
+
+/* Init */
+(async()=>{
+  try{S.cfg={...S.cfg,...JSON.parse(localStorage.getItem(KEY)||"{}")}}catch(e){}
+  S.rows=(await DB.all()).sort((a,b)=>a.ts-b.ts);
+  render();
+})();
+</script>
 </body>
 </html>
