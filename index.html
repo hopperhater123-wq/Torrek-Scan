@@ -562,13 +562,41 @@ async function syncen(){
 }
 window.addEventListener("online",()=>syncen());
 
-/* ================= Kamera ================= */
+/* ================= Kamera & Erkennung =================
+   SPEICHER-REGEL (Feld-Handys sind knapp!): nie das volle Bild kopieren.
+   1) Nativer BarcodeDetector des Browsers zuerst (Android Chrome):
+      hardwarenah, liest direkt vom Video/Bild — praktisch kein Speicher,
+      und deutlich robuster bei gewölbten/glänzenden Etiketten.
+   2) ZXing nur als Ersatz, und dann DIREKT vom Canvas (LuminanceSource) —
+      ohne dataURL/Image-Umweg, der vorher 3 Bildkopien gehalten hat.   */
+const FORMATE_NATIV=["code_128","code_39","code_93","itf","codabar","ean_13","ean_8","upc_a","upc_e"];
+let detektor=null;                        // null = noch nicht geprüft, false = gibt es nicht
+async function macheDetektor(){
+  if(detektor!==null) return detektor;
+  try{
+    if("BarcodeDetector" in window){
+      const kann=await BarcodeDetector.getSupportedFormats();
+      const fmts=FORMATE_NATIV.filter(f=>kann.includes(f));
+      if(fmts.length){ detektor=new BarcodeDetector({formats:fmts}); return detektor; }
+    }
+  }catch(e){}
+  detektor=false; return detektor;
+}
 function hints(){const h=new Map(), F=ZXing.BarcodeFormat;
   // Mehrere 1D-Symbologien zulassen — Geräte-Etiketten sind nicht immer CODE-128.
   // Der onScan-Filter (nur 6–14 Ziffern) hält Fehltreffer draußen.
   h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,
     [F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E]);
   h.set(ZXing.DecodeHintType.TRY_HARDER,true);return h;}
+// ZXing direkt vom Canvas lesen — die speicherärmste Art, die die Lib kann.
+function leseCanvas(cv){
+  try{
+    const src=new ZXing.HTMLCanvasElementLuminanceSource(cv);
+    const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+    const mr=new ZXing.MultiFormatReader(); mr.setHints(hints());
+    const r=mr.decode(bmp); return r?r.getText():null;
+  }catch(e){ return null; }                 // NotFound ist der Normalfall, kein Fehler
+}
 // Ziel des nächsten Foto-Scans: "geraet" (Etikettennummer) oder "projekt"
 // (Projektnummer im Setup). Wird pro Klick gesetzt und nach dem Lesen
 // im onchange sofort zurückgesetzt, damit nie ein Scan falsch landet.
@@ -579,8 +607,39 @@ function fotoScan(){scanZiel="geraet";stopCam();$("barcode").click();}
 // Roadmap #2: Projektnummer per Barcode statt tippen — verhindert Zahlendreher
 // im kritischen Schlüssel zwischen Aufbau und Abbau.
 function scanProjekt(){sichereSetupFelder();scanZiel="projekt";$("barcode").click();}
-function stopCam(){try{S.reader&&S.reader.reset()}catch(e){}
+let scanTimer=null, bandCv=null;
+function stopLoop(){ if(scanTimer){clearTimeout(scanTimer);scanTimer=null;} }
+function stopCam(){stopLoop();
   if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;S.torch=false;}
+// Eigene, sparsame Scan-Schleife statt der ZXing-Videoschleife: nativer
+// Detektor liest direkt vom <video>; der ZXing-Ersatz bekommt nur das
+// mittlere Band (dort sitzt der Rahmen) in EIN wiederverwendetes Mini-Canvas.
+async function scanSchleife(v){
+  stopLoop();
+  const det=await macheDetektor();
+  const lauf=async()=>{
+    scanTimer=null;
+    if(!S.stream||S.screen!=="scan"||S.pending) return;
+    try{
+      if(det){
+        const codes=await det.detect(v);
+        if(codes&&codes.length&&codes[0].rawValue){ onScan(codes[0].rawValue); return; }
+      }else if(v.videoWidth){
+        bandCv=bandCv||document.createElement("canvas");
+        const vw=v.videoWidth, vh=v.videoHeight;
+        const bw=Math.round(vw*.92), bh=Math.round(vh*.44);
+        const ziel=Math.min(800,bw), sc=ziel/bw;
+        bandCv.width=ziel; bandCv.height=Math.max(1,Math.round(bh*sc));
+        bandCv.getContext("2d",{willReadFrequently:true})
+          .drawImage(v,(vw-bw)/2,(vh-bh)/2,bw,bh,0,0,bandCv.width,bandCv.height);
+        const t=leseCanvas(bandCv);
+        if(t){ onScan(t); return; }
+      }
+    }catch(e){}
+    if(S.stream&&S.screen==="scan"&&!S.pending) scanTimer=setTimeout(lauf,det?200:280);
+  };
+  scanTimer=setTimeout(lauf,350);
+}
 // Roadmap #4: Taschenlampe für dunkle Keller. Nutzt die torch-Fähigkeit der
 // Kamera (nicht überall vorhanden) — wenn nicht, ehrlicher Hinweis statt Fehler.
 async function toggleTorch(){
@@ -604,8 +663,7 @@ async function startCam(){
       if(caps&&caps.focusMode&&caps.focusMode.includes("continuous"))
         await tr.applyConstraints({advanced:[{focusMode:"continuous"}]});}catch(e){}
     const v=$("v"); v.srcObject=S.stream; await v.play();
-    S.reader=new ZXing.BrowserMultiFormatReader(hints());
-    S.reader.decodeFromVideoElement(v,r=>{if(r)onScan(r.getText())});
+    scanSchleife(v);
   }catch(e){ $("camerr").innerHTML=`<div class="banner red"><b>Kamera geht nicht (${esc(e.name)})</b>
     Aus WhatsApp/Mail geöffnet? Link in Safari oder Chrome öffnen. Sonst unten eintippen.</div>`; }
 }
@@ -616,23 +674,36 @@ async function barcodeAusBild(f,ziel="geraet"){
   if(!f) return;
   toast("Foto wird gelesen …");
   try{
-    const cap=1000;
-    let src=null;
-    try{ src=await createImageBitmap(f,{resizeWidth:cap,resizeQuality:"medium"}); }catch(e){}
-    if(!src){                                   // Fallback ohne createImageBitmap-Resize
+    const cap=900;
+    let quelle=null, bmp=null;
+    try{ bmp=await createImageBitmap(f,{resizeWidth:cap,resizeQuality:"medium"}); quelle=bmp; }catch(e){}
+    if(!quelle){                                // Fallback ohne createImageBitmap-Resize
       const img=new Image(), url=URL.createObjectURL(f);
       await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(0);img.src=url;});
-      URL.revokeObjectURL(url); src=img;
+      URL.revokeObjectURL(url); quelle=img;
     }
-    const sw=src.width||src.naturalWidth, sh=src.height||src.naturalHeight;
-    const sc=Math.min(1,cap/Math.max(sw,sh));
-    const cv=document.createElement("canvas");
-    cv.width=Math.max(1,Math.round(sw*sc)); cv.height=Math.max(1,Math.round(sh*sc));
-    cv.getContext("2d").drawImage(src,0,0,cv.width,cv.height);
-    src.close&&src.close();
-    const durl=cv.toDataURL("image/jpeg",0.85);
-    const r=await new ZXing.BrowserMultiFormatReader(hints()).decodeFromImageUrl(durl).catch(()=>null);
-    if(r&&r.getText()){ verarbeiteScan(r.getText(),ziel); return; }
+    const iw=quelle.width||quelle.naturalWidth, ih=quelle.height||quelle.naturalHeight;
+    let text=null;
+    const det=await macheDetektor();
+    if(det){ try{ const c=await det.detect(quelle); if(c&&c.length) text=c[0].rawValue||null; }catch(e){} }
+    if(!text){
+      const cv=document.createElement("canvas"),
+            g=cv.getContext("2d",{willReadFrequently:true}),
+            sc=Math.min(1,cap/Math.max(iw,ih));
+      cv.width=Math.max(1,Math.round(iw*sc)); cv.height=Math.max(1,Math.round(ih*sc));
+      g.drawImage(quelle,0,0,cv.width,cv.height);
+      text=leseCanvas(cv);
+      if(!text){                                // 2. Versuch: mittlerer Ausschnitt, größer gezogen
+        const ax=Math.round(iw*.15), ay=Math.round(ih*.25), aw=iw-2*ax, ah=ih-2*ay;
+        const s2=Math.min(2,cap/Math.max(aw,ah));
+        cv.width=Math.max(1,Math.round(aw*s2)); cv.height=Math.max(1,Math.round(ah*s2));
+        g.drawImage(quelle,ax,ay,aw,ah,0,0,cv.width,cv.height);
+        text=leseCanvas(cv);
+      }
+      cv.width=cv.height=0;                     // Canvas-Speicher sofort freigeben
+    }
+    bmp&&bmp.close&&bmp.close();
+    if(text){ verarbeiteScan(text,ziel); return; }
     toast("Kein Barcode erkannt — gerade, nah, gutes Licht");
   }catch(e){ toast("Foto konnte nicht gelesen werden"); }
   if(S.screen==="scan") render();               // Live-Kamera wieder starten
@@ -686,7 +757,7 @@ $("barcode").onchange=async ev=>{const f=ev.target.files[0];ev.target.value="";
   const ziel=scanZiel; scanZiel="geraet";     // pro Klick, danach sofort zurück auf Standard
   await barcodeAusBild(f,ziel);};
 const shrink=file=>new Promise(res=>{const img=new Image(),u=URL.createObjectURL(file);
-  img.onload=()=>{const m=1200,sc=Math.min(1,m/Math.max(img.width,img.height));
+  img.onload=()=>{const m=1000,sc=Math.min(1,m/Math.max(img.width,img.height));
     const c=document.createElement("canvas");c.width=img.width*sc;c.height=img.height*sc;
     c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
     res(c.toDataURL("image/jpeg",0.7))};img.src=u;});

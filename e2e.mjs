@@ -489,6 +489,57 @@ try {
     check('Chip füllt Mieter wieder ein', (await page.inputValue('#m')) === 'Wimmer');
     await ctx.close();
   }
+
+  // ============ Szenario O — Scanner-Kern: CODE-128-Roundtrip (speicherarmer Weg) ============
+  // Erzeugt einen echten CODE-128 im Browser und prüft BEIDE neuen Pfade:
+  // 1) leseCanvas (ZXing direkt vom Canvas, ohne dataURL) und
+  // 2) den kompletten Foto-Weg barcodeAusBild(File) bis zum Typ-Screen.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+
+    const libOk = await page.evaluate(() =>
+      typeof ZXing.HTMLCanvasElementLuminanceSource === 'function' &&
+      typeof ZXing.MultiFormatReader === 'function' && typeof ZXing.HybridBinarizer === 'function');
+    check('ZXing-Canvas-Bausteine im Bundle vorhanden', libOk);
+
+    // CODE-128 (Zeichensatz C) zeichnen und direkt lesen
+    const rt = await page.evaluate(() => {
+      const T = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232'];
+      const code = '800000006120';
+      const vals = [105];
+      for (let i = 0; i < code.length; i += 2) vals.push(parseInt(code.slice(i, i + 2), 10));
+      let ck = vals[0]; for (let i = 1; i < vals.length; i++) ck += vals[i] * i;
+      vals.push(ck % 103);
+      const widths = vals.map(v => T[v]).join('') + '2331112';
+      const modul = 3, ruhe = 12 * modul, h = 100;
+      const gesamt = widths.split('').reduce((a, c) => a + +c, 0) * modul + 2 * ruhe;
+      const cv = document.createElement('canvas'); cv.width = gesamt; cv.height = h;
+      const g = cv.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, gesamt, h);
+      g.fillStyle = '#000';
+      let x = ruhe, balken = true;
+      for (const c of widths) { const w = +c * modul; if (balken) g.fillRect(x, 8, w, h - 16); x += w; balken = !balken; }
+      window.__bcv = cv;                       // für Teil 2 aufheben
+      return leseCanvas(cv);
+    });
+    check('leseCanvas dekodiert CODE-128 (800000006120)', rt === '800000006120');
+
+    // Kompletter Foto-Weg: File → barcodeAusBild → Typ-Screen mit Chip
+    await setup(page, {});
+    await onScanScreen(page);
+    await page.evaluate(async () => {
+      const blob = await new Promise(r => window.__bcv.toBlob(r, 'image/png'));
+      await barcodeAusBild(new File([blob], 'etikett.png', { type: 'image/png' }), 'geraet');
+    });
+    await page.waitForTimeout(700);
+    const chipTxt = await page.$eval('.chip', e => e.textContent).catch(() => '');
+    check('Foto-Weg: Barcode-Foto führt zum Typ-Screen', chipTxt.includes('800000006120'));
+    await ctx.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);
