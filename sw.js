@@ -1,7 +1,7 @@
 // Torrek Scan — Service Worker
 // Cache-Version bei JEDER Änderung an index.html hochzählen,
 // sonst servieren installierte Geräte die alte Fassung.
-const CACHE = "torrek-scan-v16";
+const CACHE = "torrek-scan-v17";
 const DATEIEN = [
   "./",
   "./index.html",

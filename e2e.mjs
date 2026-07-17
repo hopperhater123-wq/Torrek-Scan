@@ -55,7 +55,7 @@ async function mockFn(ctx, { offen = [] } = {}) {
       stammdaten: { typen: [{ id: 't1', bezeichnung: 'Kondenstrockner TK-30' }, { id: 't2', bezeichnung: 'Ventilator V-9' }], bekannt: {} },
       projekt: { offen },
       erfassen: { geraet_neu_angelegt: true },
-      korrigieren: { ok: true, kwh: body.kwh, kwh_alt: 0, differenz: null },
+      korrigieren: { ok: true, kwh: body.kwh, code: body.code, kwh_alt: 0, differenz: null },
     };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[body.aktion] ?? {}) });
   });
@@ -155,6 +155,21 @@ try {
     check('EAN-13: gültige Prüfziffer wird abgeschnitten', ean[0] === '510000002609');
     check('EAN-13: falsche Prüfziffer bleibt unangetastet', ean[1] === '5100000026094');
     check('12-Steller bleibt unverändert', ean[2] === '123456789012');
+
+    // Nummern-Korrektur: Code antippen -> neue Nummer (mit Prüfziffer, wird gestutzt)
+    page.once('dialog', d => d.accept('5100000026095'));
+    await page.click('.row .id .korr');
+    await page.waitForTimeout(1000);
+    const idNeu = await page.$eval('.row .id', e => e.textContent);
+    check('Nummer korrigiert + Prüfziffer gestutzt (510000002609)', idNeu.includes('510000002609'));
+    check('Nummern-Korrektur ging als "korrigieren" mit code raus', calls.some(c => c.aktion === 'korrigieren' && c.code === '510000002609'));
+
+    // Doppel-Wächter: Nummer der zweiten Zeile auf die erste setzen -> abgelehnt
+    page.once('dialog', d => d.accept('510000002609'));
+    await page.click('.row:nth-of-type(2) .id .korr');
+    await page.waitForTimeout(500);
+    const zweite = await page.$eval('.row:nth-of-type(2) .id', e => e.textContent);
+    check('Doppel-Wächter: Nummer bleibt bei Kollision unverändert', zweite.includes('222333444555'));
 
     // Excel-Erzeugung wirft nicht (Aufbau)
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });

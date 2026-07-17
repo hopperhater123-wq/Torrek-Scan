@@ -245,6 +245,7 @@ input[type=file]{display:none}
 .st.s{background:var(--acid);color:#101A07}
 .st.e{background:var(--rot);color:#2A0806}
 .row .val.korr{cursor:pointer}
+.row .id .korr{cursor:pointer}
 .row .val{font-family:var(--mono);font-size:14.5px;text-align:right;font-weight:600;
   font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .row .val small{display:block;font-size:8.5px;color:var(--muted);letter-spacing:.08em;
@@ -549,7 +550,7 @@ async function syncen(){
       // Korrektur einer bereits gesendeten Zeile: eigener Auftrag statt erfassen
       // (erfassen würde als „doppelt" abgewiesen und nichts ändern).
       if(r.status==="korrektur"){
-        const j=await ruf({aktion:"korrigieren",local_id:r.local_id,kwh:r.wert});
+        const j=await ruf({aktion:"korrigieren",local_id:r.local_id,kwh:r.wert,code:r.code});
         r.status="synced"; r.fehler=null;
         if(j.differenz!=null) r.diff=j.differenz;
         await DB.put(r); continue;
@@ -922,7 +923,7 @@ function render(){
         <div class="big">${fmt(+sum.toFixed(2))}<span>kWh</span></div></div>`:""}
       ${rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
+        <span class="id"><span class="korr" onclick="korrigiereCode('${r.local_id}')" title="Nummer korrigieren">${esc(r.code)} ✎</span><small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
         <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
@@ -942,7 +943,7 @@ function render(){
     const block=(titel,list,istAb)=>list.length?`<h1 style="font-size:16px;margin:16px 0 2px">${titel}</h1>`+
       list.map((r,i)=>`<div class="row ${r.differenz!=null&&r.differenz<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}${r.korrigiert?` · <b style="color:var(--acid)">korrigiert</b> (war ${fmt(r.kwh_alt)})`:""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}${r.korrigiert?` · <b style="color:var(--acid)">korrigiert</b>${r.kwh_alt!=null?" (kWh war "+fmt(r.kwh_alt)+")":""}${r.code_alt?" (Nr. war "+esc(r.code_alt)+")":""}`:""}</small></span>
         <span class="val">${istAb&&r.differenz!=null?fmt(r.differenz):fmt(r.kwh)}
           <small>${istAb&&r.differenz!=null?"Differenz":"kWh"}</small></span></div>`).join(""):"";
     app.innerHTML=`
@@ -1038,7 +1039,7 @@ function render(){
       ${err.length?`<div class="banner red"><b>${err.length} nicht gesendet</b>
         ${esc(err[0].fehler||"")}</div>`:""}
       ${rows.length?rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
-        <span class="idx">${i+1}</span><span class="id">${esc(r.code)}${r.notiz?`<small>${esc(r.notiz)}</small>`:""}</span>
+        <span class="idx">${i+1}</span><span class="id"><span class="korr" onclick="korrigiereCode('${r.local_id}')" title="Nummer korrigieren">${esc(r.code)} ✎</span>${r.notiz?`<small>${esc(r.notiz)}</small>`:""}</span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
         <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
@@ -1258,6 +1259,31 @@ async function korrigiere(id){
   if(r.status==="synced") r.status="korrektur"; // sonst nimmt das erste Senden den neuen Wert mit
   await DB.put(r);
   toast(r.code+" korrigiert: "+fmt(kwh)+" kWh");
+  render(); syncen();
+}
+// Auch die Etikettennummer ist korrigierbar (Nummer in Liste/Verlauf antippen) —
+// z. B. wenn versehentlich das falsche Gerät erwischt oder eine Nummer vertippt
+// wurde. Prüfziffer wird wie beim Scannen behandelt; Doppel in derselben Liste
+// sind gesperrt. Der Server behält die erste Nummer in code_alt.
+async function korrigiereCode(id){
+  const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
+  const v=prompt("Neue Etikettennummer (bisher "+r.code+")",r.code);
+  if(v==null||!v.trim()) return;
+  const c=ohnePruefziffer(v.trim().replace(/\D/g,""));
+  if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}
+  if(c===r.code) return;
+  if(S.rows.some(x=>x.local_id!==r.local_id&&!x.geloescht&&x.projekt===r.projekt&&x.modus===r.modus&&x.code===c)){
+    toast("Schon in der Liste: "+c); return;
+  }
+  const alt=r.code; r.code=c;
+  // Abbau: Aufbau-Stand zur neuen Nummer aus der Offen-Liste ziehen (falls bekannt).
+  if(r.modus==="abbau"){
+    const o=(S.offen||[]).find(x=>x.geraet_inventarnummer===c);
+    if(o){ r.auf=o.zaehlerstand_start; r.diff=+(r.wert-o.zaehlerstand_start).toFixed(2); }
+  }
+  if(r.status==="synced") r.status="korrektur";
+  await DB.put(r);
+  toast("Nummer geändert: "+alt+" → "+c);
   render(); syncen();
 }
 

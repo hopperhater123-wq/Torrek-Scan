@@ -34,10 +34,12 @@ hängt optional ein **Foto vom Zähler** an. Beim Abbau rechnet die App automati
 - **Offline-first:** Jede Erfassung geht zuerst in IndexedDB. Der Sync gegen den Server läuft
   best-effort und automatisch nach, sobald wieder Netz da ist — nichts geht verloren.
   „**Alles gesendet?**"-Banner im Setup, solange Erfassungen warten.
-- **Zählerstand korrigieren:** vertippten kWh-Stand nachträglich ändern — Wert in der
-  Liste (oder im Verlauf) antippen, neuen Stand eingeben. Bereits gesendete Zeilen werden
-  am Server nachgezogen; der ursprüngliche Wert bleibt dort nachvollziehbar (`kwh_alt`),
-  das Büro-Archiv kennzeichnet Korrekturen.
+- **Korrigieren statt neu erfassen:** vertippten kWh-Stand **oder** die Etikettennummer
+  nachträglich ändern — Wert bzw. Nummer in der Liste oder in früheren Listen (Archiv)
+  antippen (✎), neuen Stand/neue Nummer eingeben. Doppelte Nummern in derselben Liste
+  sind gesperrt; bereits gesendete Zeilen werden am Server nachgezogen. Die ursprünglichen
+  Werte bleiben dort nachvollziehbar (`kwh_alt`/`code_alt`), das Büro-Archiv kennzeichnet
+  Korrekturen („korrigiert — Nr. war …").
 - **Excel-Export** (SheetJS) als „Zettel fürs Büro", inkl. Gesamtverbrauch beim Abbau.
 - **Archiv:** frühere Listen dieses Geräts (mit Löschen → **Papierkorb** → Wiederherstellen)
   und **Büro-Archiv** (geräteübergreifender Verlauf vom Server, mit Excel-Export).
@@ -88,7 +90,7 @@ Server und **mockt bzw. blockiert die Edge Function** — es geht nie ein echter
 Supabase raus. Deckt u. a. Setup, Aufbau, Abbau-Differenz, Offline, Hell/Dunkel, Büro-Archiv,
 Standort, Löschen/Papierkorb, Tippfehler-Bremse, Foto-Erinnerung, letzte Baustellen und den
 Scanner-Kern (selbst erzeugter CODE-128 durch den echten Foto-Weg) und die
-Zählerstand-Korrektur ab — **59 Checks**.
+Zählerstand- und Nummern-Korrektur ab — **62 Checks**.
 
 ```bash
 # aus dem Repo-Wurzelverzeichnis (nutzt playwright-core aus dem Wurzel-node_modules)
