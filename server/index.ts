@@ -15,6 +15,10 @@
 // v4 (Feld-Helfer): Notiz je Gerät (Spalte scan_erfassung.notiz, additiv)
 // wird gespeichert und im Verlauf ausgegeben; "stammdaten" liefert zusätzlich
 // Büro-Einstellungen (foto_pflicht: aus | hinweis | pflicht) aus scan_einstellung.
+//
+// v6 (Korrektur): aktion "korrigieren" — vertippten kWh-Stand einer Erfassung
+// ändern (Spalten kwh_alt + korrigiert_am, additiv). Der ursprüngliche Wert
+// bleibt in kwh_alt nachvollziehbar; der Verlauf kennzeichnet Korrekturen.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -93,7 +97,7 @@ Deno.serve(async (req) => {
       const pn = norm(b.projektnummer);
       if (!pn) return json({ fehler: "Projektnummer fehlt" }, 400);
       const { data: alle } = await db.from("scan_erfassung")
-        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort, notiz")
+        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort, notiz, kwh_alt, korrigiert_am")
         .eq("projektnummer", pn).order("erfasst_am");
       const rows = alle ?? [];
       // Typ-Bezeichnungen (read-only aus geraetetyp)
@@ -117,8 +121,49 @@ Deno.serve(async (req) => {
         differenz: r.modus === "abbau" && aufKwh[r.code] != null
           ? +(Number(r.kwh) - aufKwh[r.code]).toFixed(2) : null,
         hat_foto: !!r.foto_ref,
+        korrigiert: r.korrigiert_am != null,
+        kwh_alt: r.kwh_alt != null ? Number(r.kwh_alt) : null,
       }));
       return json({ projektnummer: pn, erfassungen });
+    }
+
+    // v6 — Korrektur: vertippten Zählerstand einer bestehenden Erfassung ändern.
+    // Nachvollziehbar: kwh_alt behält den ERSTEN Wert, korrigiert_am den Zeitpunkt.
+    // Konsistenz: Abbau-Stand darf nicht unter den Aufbau-Stand desselben
+    // Geräts im selben Projekt fallen (und umgekehrt).
+    if (b.aktion === "korrigieren") {
+      const local_id = norm(b.local_id);
+      if (!local_id) return json({ fehler: "local_id fehlt" }, 400);
+      const kwh = Number(b.kwh);
+      if (!isFinite(kwh) || kwh < 0) return json({ fehler: "Ungültiger Zählerstand" }, 400);
+      const { data: row } = await db.from("scan_erfassung")
+        .select("local_id, projektnummer, code, modus, kwh, kwh_alt")
+        .eq("local_id", local_id).maybeSingle();
+      if (!row) return json({ fehler: "Erfassung nicht gefunden" }, 404);
+
+      const { data: paar } = await db.from("scan_erfassung")
+        .select("modus, kwh").eq("projektnummer", row.projektnummer)
+        .eq("code", row.code).neq("local_id", local_id);
+      const gegen = (paar ?? []).find((r) => r.modus !== row.modus);
+      if (gegen) {
+        const start = row.modus === "aufbau" ? kwh : Number(gegen.kwh);
+        const ende = row.modus === "abbau" ? kwh : Number(gegen.kwh);
+        if (ende < start) return json({ fehler: "Endstand darf nicht kleiner als der Aufbau-Stand sein." }, 409);
+      }
+      if (kwh === Number(row.kwh)) return json({ ok: true, unveraendert: true, kwh, differenz: null });
+
+      const { error } = await db.from("scan_erfassung").update({
+        kwh, kwh_alt: row.kwh_alt ?? row.kwh, korrigiert_am: new Date().toISOString(),
+      }).eq("local_id", local_id);
+      if (error) throw new Error(error.message);
+
+      const diff = gegen
+        ? +((row.modus === "abbau" ? kwh : Number(gegen.kwh)) - (row.modus === "aufbau" ? kwh : Number(gegen.kwh))).toFixed(2)
+        : null;
+      return json({
+        ok: true, kwh, kwh_alt: Number(row.kwh_alt ?? row.kwh), differenz: diff,
+        warnung: diff != null && diff < 0 ? "Differenz negativ — Zähler übergelaufen oder vertippt." : null,
+      });
     }
 
     if (b.aktion !== "erfassen") return json({ fehler: "Unbekannte Aktion" }, 400);

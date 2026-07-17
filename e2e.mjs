@@ -46,16 +46,20 @@ const browser = await chromium.launch({ executablePath: EXE, headless: true,
 
 // Mock-Antworten der Edge Function je nach aktion.
 async function mockFn(ctx, { offen = [] } = {}) {
+  const calls = [];                       // alle Requests an die (gemockte) Function
   await ctx.route('**/functions/v1/**', async route => {
-    let aktion = '';
-    try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+    let body = {};
+    try { body = JSON.parse(route.request().postData() || '{}'); } catch {}
+    calls.push(body);
     const bodies = {
       stammdaten: { typen: [{ id: 't1', bezeichnung: 'Kondenstrockner TK-30' }, { id: 't2', bezeichnung: 'Ventilator V-9' }], bekannt: {} },
       projekt: { offen },
       erfassen: { geraet_neu_angelegt: true },
+      korrigieren: { ok: true, kwh: body.kwh, kwh_alt: 0, differenz: null },
     };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[body.aktion] ?? {}) });
   });
+  return calls;
 }
 
 const setup = async (page, { code = 'CODE1', projekt = '2026 033996', mieter = 'Wimmer', modus = 'aufbau' } = {}) => {
@@ -75,7 +79,7 @@ try {
   // ============ Szenario A — Aufbau (online, gemockt) ============
   {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
-    await mockFn(ctx);
+    const calls = await mockFn(ctx);
     const page = await ctx.newPage();
     await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(2600);
@@ -130,6 +134,21 @@ try {
     await page.click('button:has-text("Liste")');
     await page.waitForTimeout(700);
     check('Liste-Crumb Plural "2 Geräte"', (await crumb(page)) === '2 Geräte');
+
+    // Korrektur (vertippt): Wert antippen -> neuer Stand -> geht als "korrigieren" raus
+    page.once('dialog', d => d.accept('4300'));
+    await page.click('.row .val.korr');
+    await page.waitForTimeout(1000);
+    const valNeu = await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''));
+    check('Korrektur: Liste zeigt neuen Wert (4.300)', valNeu.includes('4.300'));
+    check('Korrektur ging als "korrigieren" an den Server', calls.some(c => c.aktion === 'korrigieren' && c.kwh === 4300));
+    check('Korrigierte Zeile wieder synced (↑)', (await page.$eval('.row .st', e => e.textContent.trim())) === '↑');
+
+    // Ungültige Eingabe wird abgewiesen, Wert bleibt
+    page.once('dialog', d => d.accept('abc'));
+    await page.click('.row .val.korr');
+    await page.waitForTimeout(500);
+    check('Korrektur: Unsinn wird abgewiesen', (await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''))).includes('4.300'));
 
     // Excel-Erzeugung wirft nicht (Aufbau)
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });

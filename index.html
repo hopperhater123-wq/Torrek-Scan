@@ -244,6 +244,7 @@ input[type=file]{display:none}
 .st.p{background:var(--orange);color:#2A0F06}
 .st.s{background:var(--acid);color:#101A07}
 .st.e{background:var(--rot);color:#2A0806}
+.row .val.korr{cursor:pointer}
 .row .val{font-family:var(--mono);font-size:14.5px;text-align:right;font-weight:600;
   font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .row .val small{display:block;font-size:8.5px;color:var(--muted);letter-spacing:.08em;
@@ -545,6 +546,14 @@ async function syncen(){
   S.sync=true; render();
   for(const r of S.rows.filter(x=>x.status!=="synced"&&!x.geloescht)){
     try{
+      // Korrektur einer bereits gesendeten Zeile: eigener Auftrag statt erfassen
+      // (erfassen würde als „doppelt" abgewiesen und nichts ändern).
+      if(r.status==="korrektur"){
+        const j=await ruf({aktion:"korrigieren",local_id:r.local_id,kwh:r.wert});
+        r.status="synced"; r.fehler=null;
+        if(j.differenz!=null) r.diff=j.differenz;
+        await DB.put(r); continue;
+      }
       const j=await ruf({aktion:"erfassen",code:r.code,projektnummer:r.projekt,mieter:r.mieter,
         modus:r.modus,kwh:r.wert,foto:r.foto||null,local_id:r.local_id,
         typ_id:r.geraetetyp_id||null,standort:r.standort||null,notiz:r.notiz||null});
@@ -905,8 +914,8 @@ function render(){
         <span class="id">${esc(r.code)}<small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
-        <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
-          <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
+        <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
+          <small>${av&&r.diff!=null?"Differenz":"kWh"} ✎</small></span></div>`).join("")}
       <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>
       <button class="btn ghost" style="color:var(--rot);border-color:var(--rot)"
         onclick="listeLoeschen('${esc(sel.projekt)}','${sel.modus}')">Liste löschen</button>`;
@@ -922,7 +931,7 @@ function render(){
     const block=(titel,list,istAb)=>list.length?`<h1 style="font-size:16px;margin:16px 0 2px">${titel}</h1>`+
       list.map((r,i)=>`<div class="row ${r.differenz!=null&&r.differenz<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}${r.korrigiert?` · <b style="color:var(--acid)">korrigiert</b> (war ${fmt(r.kwh_alt)})`:""}</small></span>
         <span class="val">${istAb&&r.differenz!=null?fmt(r.differenz):fmt(r.kwh)}
           <small>${istAb&&r.differenz!=null?"Differenz":"kWh"}</small></span></div>`).join(""):"";
     app.innerHTML=`
@@ -1021,8 +1030,8 @@ function render(){
         <span class="idx">${i+1}</span><span class="id">${esc(r.code)}${r.notiz?`<small>${esc(r.notiz)}</small>`:""}</span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
-        <span class="val">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
-          <small>${ab&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")
+        <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
+          <small>${ab&&r.diff!=null?"Differenz":"kWh"} ✎</small></span></div>`).join("")
         :`<p class="empty">Noch nichts gescannt.</p>`}
       <button class="btn go" onclick="go('scan')">Weiter scannen</button>
       <button class="btn primary" onclick="go('senden')" ${rows.length?"":"disabled"}>Abschließen</button>
@@ -1220,6 +1229,25 @@ function tippen(){
   const c=v.trim().replace(/\D/g,"");
   if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}
   onScan(c);
+}
+// Vertippten Zählerstand nachträglich ändern (Wert in Liste/Verlauf antippen).
+// Lokal sofort; war die Zeile schon gesendet, geht die Korrektur als eigener
+// Auftrag ("korrigieren") an den Server, sobald Netz da ist. Der Server behält
+// den ursprünglichen Wert in kwh_alt — nichts verschwindet stillschweigend.
+async function korrigiere(id){
+  const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
+  const v=prompt("Neuer Zählerstand für "+r.code+" (bisher "+fmt(r.wert)+" kWh)",String(r.wert).replace(".",","));
+  if(v==null||!v.trim()) return;
+  const kwh=Number(v.trim().replace(",","."));
+  if(!isFinite(kwh)||kwh<0){toast("Ungültiger Zählerstand");return}
+  if(r.modus==="abbau"&&r.auf!=null&&kwh<Number(r.auf)){toast("Endstand liegt unter dem Aufbau-Stand ("+fmt(r.auf)+" kWh)");return}
+  if(kwh===Number(r.wert)) return;
+  r.wert=kwh;
+  if(r.modus==="abbau"&&r.auf!=null) r.diff=+(kwh-Number(r.auf)).toFixed(2);
+  if(r.status==="synced") r.status="korrektur"; // sonst nimmt das erste Senden den neuen Wert mit
+  await DB.put(r);
+  toast(r.code+" korrigiert: "+fmt(kwh)+" kWh");
+  render(); syncen();
 }
 
 /* ================= Start ================= */
