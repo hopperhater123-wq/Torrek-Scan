@@ -731,9 +731,20 @@ function verarbeiteScan(text,ziel){
   }
   onScan(text);
 }
+// EAN-Prüfziffer abschneiden (Etiketten-Realität): Der Etikettendrucker codiert
+// die 12 gedruckten Ziffern als EAN-13 — die Striche tragen eine 13. Ziffer
+// (Prüfziffer), der Klartext auf dem Etikett nicht. Damit Scan, Etikett und
+// Tippen dieselbe Nummer ergeben, wird eine GÜLTIGE Prüfziffer entfernt;
+// stimmt die Rechnung nicht, ist es ein echter 13-steller und bleibt ganz.
+function ohnePruefziffer(code){
+  if(!/^\d{13}$/.test(code)) return code;
+  let s=0; for(let i=0;i<12;i++) s+=(+code[i])*(i%2?3:1);
+  return (10-s%10)%10===+code[12] ? code.slice(0,12) : code;
+}
 // FR-SCAN-010/012/013: nur CODE-128-Ziffern übernehmen, keine Doppel,
 // im Abbau nur Geräte, die zu diesem Projekt gehören.
 function onScan(code){
+  code=ohnePruefziffer(code);
   if(S.pending||!/^\d{6,14}$/.test(code)) return;
   if(meine().some(r=>r.code===code)){toast("Schon erfasst: "+code);return}
   if(S.cfg.modus==="abbau"&&S.offen.length&&!S.offen.some(o=>o.geraet_inventarnummer===code)){

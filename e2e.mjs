@@ -150,6 +150,12 @@ try {
     await page.waitForTimeout(500);
     check('Korrektur: Unsinn wird abgewiesen', (await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''))).includes('4.300'));
 
+    // EAN-Prüfziffer: gültige 13. Ziffer wird abgeschnitten, ungültige bleibt
+    const ean = await page.evaluate(() => [ohnePruefziffer('5100000026095'), ohnePruefziffer('5100000026094'), ohnePruefziffer('123456789012')]);
+    check('EAN-13: gültige Prüfziffer wird abgeschnitten', ean[0] === '510000002609');
+    check('EAN-13: falsche Prüfziffer bleibt unangetastet', ean[1] === '5100000026094');
+    check('12-Steller bleibt unverändert', ean[2] === '123456789012');
+
     // Excel-Erzeugung wirft nicht (Aufbau)
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });
     check('Excel-Workbook baut ohne Fehler (Aufbau)', excelOk);

@@ -22,7 +22,9 @@ hängt optional ein **Foto vom Zähler** an. Beim Abbau rechnet die App automati
   Chrome — hardwarenah, liest direkt vom Video, robust bei gewölbten/glänzenden Etiketten);
   ZXing nur als Ersatz, dann direkt vom Canvas. Mehrere 1D-Formate (Code 128/39/93, ITF,
   Codabar, EAN, UPC). Zusätzlich: **Barcode vom Foto einlesen**, **Taschenlampe**,
-  **Nummer eintippen** als letzter Weg.
+  **Nummer eintippen** als letzter Weg. Eine **EAN-13-Prüfziffer** (Drucker codiert
+  13 Striche, Etikett zeigt 12 Ziffern) wird automatisch abgeschnitten — Scan,
+  Etikett und Tippen ergeben dieselbe Nummer.
 - **Aufbau / Abbau** als zwei Modi einer Liste. Im Abbau kennt die App die offenen Geräte des
   Projekts und warnt bei fehlenden (mit **Standort**), fremden oder negativen Ständen.
   **Tippfehler-Bremse** bei unplausiblen Zählerständen.
@@ -86,7 +88,7 @@ Server und **mockt bzw. blockiert die Edge Function** — es geht nie ein echter
 Supabase raus. Deckt u. a. Setup, Aufbau, Abbau-Differenz, Offline, Hell/Dunkel, Büro-Archiv,
 Standort, Löschen/Papierkorb, Tippfehler-Bremse, Foto-Erinnerung, letzte Baustellen und den
 Scanner-Kern (selbst erzeugter CODE-128 durch den echten Foto-Weg) und die
-Zählerstand-Korrektur ab — **56 Checks**.
+Zählerstand-Korrektur ab — **59 Checks**.
 
 ```bash
 # aus dem Repo-Wurzelverzeichnis (nutzt playwright-core aus dem Wurzel-node_modules)
