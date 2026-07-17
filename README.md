@@ -18,19 +18,32 @@ hängt optional ein **Foto vom Zähler** an. Beim Abbau rechnet die App automati
 
 ## Was es kann
 
-- **Barcode-Scan** (CODE-128) über die Rückkamera, ZXing im Browser; Fallback: Nummer eintippen.
+- **Barcode-Scan, speicherarm:** zuerst der **native `BarcodeDetector`** des Browsers (Android
+  Chrome — hardwarenah, liest direkt vom Video, robust bei gewölbten/glänzenden Etiketten);
+  ZXing nur als Ersatz, dann direkt vom Canvas. Mehrere 1D-Formate (Code 128/39/93, ITF,
+  Codabar, EAN, UPC). Zusätzlich: **Barcode vom Foto einlesen**, **Taschenlampe**,
+  **Nummer eintippen** als letzter Weg.
 - **Aufbau / Abbau** als zwei Modi einer Liste. Im Abbau kennt die App die offenen Geräte des
-  Projekts und warnt bei fehlenden, fremden oder negativen Ständen.
+  Projekts und warnt bei fehlenden (mit **Standort**), fremden oder negativen Ständen.
+  **Tippfehler-Bremse** bei unplausiblen Zählerständen.
 - **Neues Gerät** wird beim ersten Scan einmalig nach dem Gerätetyp gefragt, danach nie wieder.
+  Optional je Gerät: **Standort** (Aufbau), **Notiz** („defekt"), **Foto vom Zähler**
+  (Erinnerung/Pflicht pro Büro einstellbar).
 - **Offline-first:** Jede Erfassung geht zuerst in IndexedDB. Der Sync gegen den Server läuft
   best-effort und automatisch nach, sobald wieder Netz da ist — nichts geht verloren.
+  „**Alles gesendet?**"-Banner im Setup, solange Erfassungen warten.
 - **Excel-Export** (SheetJS) als „Zettel fürs Büro", inkl. Gesamtverbrauch beim Abbau.
+- **Archiv:** frühere Listen dieses Geräts (mit Löschen → **Papierkorb** → Wiederherstellen)
+  und **Büro-Archiv** (geräteübergreifender Verlauf vom Server, mit Excel-Export).
+- **Mehrere Baustellen:** die letzten Projekte als antippbare Chips im Setup;
+  **Projektnummer scannen** statt tippen.
 
 ## Aufbau
 
-Eine einzige, selbsttragende `index.html` (HTML + CSS + JS, keine Build-Kette). Externe
-Bibliotheken (ZXing, SheetJS) werden per CDN geladen. Backend ist eine Supabase Edge Function
-(`/functions/v1/torrek-scan`), authentifiziert über einen `x-app-code`-Header pro Liste.
+Eine einzige, selbsttragende `index.html` (HTML + CSS + JS, keine Build-Kette). Die
+Bibliotheken (ZXing, SheetJS) liegen lokal unter `vendor/` — kein CDN, echtes Offline.
+Backend ist eine Supabase Edge Function (`/functions/v1/torrek-scan`), authentifiziert
+über einen `x-app-code`-Header pro Liste; der Code liegt dokumentiert in `server/index.ts`.
 
 | Datei | Zweck |
 |---|---|
@@ -43,8 +56,10 @@ Bibliotheken (ZXing, SheetJS) werden per CDN geladen. Backend ist eine Supabase 
 
 ## Screens
 
-`setup` (Liste anlegen) → `scan` (Kamera) → `typ` (nur bei neuem Gerät) → `wert`
-(Ziffernfeld + Foto) → `liste` (Erfasstes + Sync-Status) → `senden` (Abschluss + Excel).
+`setup` (Liste anlegen, letzte Baustellen) → `scan` (Kamera, Licht, Foto-Scan) → `typ`
+(nur bei neuem Gerät) → `wert` (Ziffernfeld + Standort/Notiz/Foto) → `liste` (Erfasstes +
+Sync-Status) → `senden` (Abschluss + Excel). Daneben: `archiv` (frühere Listen + Büro-Archiv-
+Suche) → `archivDetail` / `serverArchiv` und `papierkorb` (gelöschte Listen wiederherstellen).
 
 ## Lokal ansehen
 
@@ -64,8 +79,9 @@ Libs startet und scannt die App auch **beim ersten Mal offline**; nur Sync/Backe
 
 Hermetischer E2E-Golden-Path (Playwright, echtes Chromium): startet einen eigenen statischen
 Server und **mockt bzw. blockiert die Edge Function** — es geht nie ein echter Request an
-Supabase raus. Deckt Setup, Aufbau, Abbau-Differenz, Grammatik (1 Gerät / 2 Geräte),
-Sync-Status und den Offline-Leerzustand ab (18 Checks).
+Supabase raus. Deckt u. a. Setup, Aufbau, Abbau-Differenz, Offline, Hell/Dunkel, Büro-Archiv,
+Standort, Löschen/Papierkorb, Tippfehler-Bremse, Foto-Erinnerung, letzte Baustellen und den
+Scanner-Kern (selbst erzeugter CODE-128 durch den echten Foto-Weg) ab — **52 Checks**.
 
 ```bash
 # aus dem Repo-Wurzelverzeichnis (nutzt playwright-core aus dem Wurzel-node_modules)
@@ -101,15 +117,13 @@ git push -u origin main
 
 Danach deployt jeder Push automatisch; URL: `https://hopperhater123-wq.github.io/torrek-scan/`.
 
-## Design
+## Design — „Field System"
 
-Gestaltungsprinzip „Feldinstrument": Papier `#FBF9F5` / Tinte `#1C1A17`, **Petrol** `#0F7C86`
-als bedeutungsfreier Marken-/Interaktions-Akzent (Fokus, Display-Rahmen, „Scan"-Wortmarke),
-dunkles Ablese-Display mit Monospace-Ziffern, animiertes Barcode-Intro, dezente CSS-3D-Tiefe.
-
-**Farb-Bedeutung strikt getrennt:** Bernstein `#E8A33D` = **Aufbau**-Status, Grün `#5FA777`
-= **Abbau**/Erfolg, Koralle `#E2574C` = Warnung/Laser. Diese Ampel-/Statusfarben sind für
-Bewertung/Status reserviert; für Deko dient allein Petrol.
+Dunkler, technischer Look (Stand 16.07., vom Projektinhaber gestaltet): fast-schwarze Tinte
+`#090B0D` mit feiner Rausch-Textur, **Acid-Grün** `#BCFF55` als Haupt-Akzent (Aufbau, Treffer,
+Laser), **Cyan** `#71E4DF` (Abbau, Fokus), Orange/Rot `#FF7148`/`#E2574C` für Warnungen.
+Monospace-Labels, großes vertikales „TORREK"-Wasserzeichen mit Parallax, Vorhang-Intro mit
+Barcode-Animation, choreografierte Screenwechsel (nur beim Wechsel, nie beim Tippen).
 
 **Hell-/Dunkelmodus** (Auto/Hell/Dunkel, im Setup umschaltbar, in `localStorage` gemerkt,
 Voreinstellung folgt `prefers-color-scheme`). Nur die Flächen-/Text-Token drehen; die Akzente
