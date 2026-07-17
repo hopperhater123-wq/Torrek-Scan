@@ -474,7 +474,7 @@ DB.cget=async(k)=>{const r=await tx("cache","readonly",s=>s.get(k));return r?r.v
 /* ================= Zustand ================= */
 let S={screen:"setup",cfg:{code:"",projekt:"",mieter:"",modus:"aufbau"},
        rows:[],pending:null,buf:"",reader:null,stream:null,offen:[],sync:false,
-       typen:[],bekannt:{},zurueck:false,archivSel:null,serverVerlauf:null};
+       typen:[],bekannt:{},einst:{},zurueck:false,archivSel:null,serverVerlauf:null};
 const $=id=>document.getElementById(id), bar=$("bar"), app=$("app");
 const fmt=n=>Number(n).toLocaleString("de-DE",{maximumFractionDigits:0});
 const esc=s=>String(s??"").replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
@@ -521,13 +521,20 @@ async function ladeOffen(){
 // ob ein Barcode neu ist und nach dem Typ gefragt werden muss.
 async function ladeStammdaten(){
   S.typen=await DB.cget("typen")||[]; S.bekannt=await DB.cget("bekannt")||{};
+  S.einst=await DB.cget("einst")||{};
   if(!navigator.onLine) return;
   try{
     const j=await ruf({aktion:"stammdaten"});
     S.typen=j.typen||[]; S.bekannt=j.bekannt||{};
+    S.einst=j.einstellungen||{};
     await DB.cput("typen",S.typen); await DB.cput("bekannt",S.bekannt);
+    await DB.cput("einst",S.einst);
   }catch(e){}
 }
+// Roadmap #6: Foto-Erinnerung/-Pflicht, pro Büro über den Server einstellbar
+// (scan_einstellung: foto_pflicht = aus | hinweis | pflicht). Ohne Server-
+// Vorgabe bleibt sie AUS — die App ändert ihr Verhalten nie von allein.
+const fotoStufe=()=>S.einst.foto_pflicht||"aus";
 // FR-SCAN-020/021: nach dem Typ nur beim ersten unbekannten Barcode fragen.
 const brauchtTyp=code=>!S.bekannt[code];
 
@@ -540,7 +547,7 @@ async function syncen(){
     try{
       const j=await ruf({aktion:"erfassen",code:r.code,projektnummer:r.projekt,mieter:r.mieter,
         modus:r.modus,kwh:r.wert,foto:r.foto||null,local_id:r.local_id,
-        typ_id:r.geraetetyp_id||null,standort:r.standort||null});
+        typ_id:r.geraetetyp_id||null,standort:r.standort||null,notiz:r.notiz||null});
       r.status="synced"; r.fehler=null; r.neu=j.geraet_neu_angelegt||false;
       if(j.differenz!=null) r.diff=j.differenz;
       r.foto=null;                       // nach dem Hochladen Platz freigeben
@@ -692,14 +699,14 @@ function wbFuer(projekt,modus,mieter){
   const listenTag=rows.length?tag(rows[0].ts):heute();
   const a=[["Geräteliste – Bautrocknung"],["Projektnummer:",projekt],["Datum:",listenTag],
            ["Mieter:",mieter],[]];
-  a.push(ab?["Nr.","Gerät","Standort","Datum","Mieter","kWh Auf","kWh Ab","Differenz"]
-           :["Nr.","Gerät","Standort","Datum","Mieter","kWh","Auf","Ab"]);
-  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.auf??"",r.wert,r.diff??""]
-                              :[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.wert,"X",""]));
+  a.push(ab?["Nr.","Gerät","Standort","Datum","Mieter","kWh Auf","kWh Ab","Differenz","Notiz"]
+           :["Nr.","Gerät","Standort","Datum","Mieter","kWh","Auf","Ab","Notiz"]);
+  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.auf??"",r.wert,r.diff??"",r.notiz||""]
+                              :[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.wert,"X","",r.notiz||""]));
   if(ab){const s=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
     a.push([]);a.push(["","","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
   const ws=XLSX.utils.aoa_to_sheet(a);
-  ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:12},{wch:14},{wch:11},{wch:11},{wch:11}];
+  ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:12},{wch:14},{wch:11},{wch:11},{wch:11},{wch:20}];
   const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Geräteliste");return b;
 }
 const wb=()=>wbFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter);
@@ -746,11 +753,19 @@ function render(){
 
   if(S.screen==="setup"){
     bar.innerHTML=`<span class="crumb">Torrek Scan</span>${netz}`;
+    const letzte=letzteLaden();
     app.innerHTML=`<h1>Neue<em>Liste.</em></h1>
       <p class="sub">Einmal ausfüllen, gilt für alle Geräte.</p>
+      ${offenN?`<div class="banner amber"><b>Alles gesendet? ${offenN} ${nomen(offenN,"Erfassung wartet","Erfassungen warten")} noch.</b>
+        Sie ${nomen(offenN,"liegt","liegen")} nur auf diesem Handy — vor Feierabend einmal mit Netz senden.</div>
+      <button class="btn ghost" onclick="syncen()">${S.sync?"Sendet …":"Jetzt senden"}</button>`:""}
       <label>Zugangscode</label><input type="text" id="c" value="${esc(S.cfg.code)}" placeholder="vom Büro">
       <label>Projektnummer</label><input type="text" id="p" value="${esc(S.cfg.projekt)}" placeholder="2026 033996">
       <button class="btn ghost" style="margin:-6px 0 22px" onclick="scanProjekt()">Projektnummer scannen</button>
+      ${letzte.length?`<label>Letzte Baustellen — antippen zum Wechseln</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px">
+        ${letzte.map((l,i)=>`<button class="chip" style="margin:0;cursor:pointer" onclick="nutzeLetzte(${i})">${esc(l.projekt)}${l.mieter?" · "+esc(l.mieter):""}</button>`).join("")}
+      </div>`:""}
       <label>Mieter</label><input type="text" id="m" value="${esc(S.cfg.mieter)}" placeholder="Wimmer">
       <label>Was machst du heute?</label>
       <div class="seg">
@@ -762,8 +777,7 @@ function render(){
         <button aria-pressed="${themePref()==='light'}" onclick="setTheme('light')">Hell</button>
         <button aria-pressed="${themePref()==='dark'}" onclick="setTheme('dark')">Dunkel</button></div>
       <button class="btn primary" onclick="los()">Loslegen</button>
-      ${S.rows.length?`<button class="btn ghost" onclick="go('archiv')">Frühere Listen ansehen</button>`:""}
-      ${offenN?`<p class="foot">${offenN} ${nomen(offenN,"Erfassung wartet","Erfassungen warten")} noch aufs Senden.</p>`:""}`;
+      ${S.rows.length?`<button class="btn ghost" onclick="go('archiv')">Frühere Listen ansehen</button>`:""}`;
     return;
   }
 
@@ -817,7 +831,7 @@ function render(){
         <div class="big">${fmt(+sum.toFixed(2))}<span>kWh</span></div></div>`:""}
       ${rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
         <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
@@ -837,7 +851,7 @@ function render(){
     const block=(titel,list,istAb)=>list.length?`<h1 style="font-size:16px;margin:16px 0 2px">${titel}</h1>`+
       list.map((r,i)=>`<div class="row ${r.differenz!=null&&r.differenz<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="val">${istAb&&r.differenz!=null?fmt(r.differenz):fmt(r.kwh)}
           <small>${istAb&&r.differenz!=null?"Differenz":"kWh"}</small></span></div>`).join(""):"";
     app.innerHTML=`
@@ -913,6 +927,9 @@ function render(){
       ${!ab?`<label style="margin-top:2px">Standort (optional)</label>
         <input type="text" value="${esc(S.pending.standort||"")}" placeholder="z. B. Keller links, EG Bad"
           oninput="S.pending.standort=this.value">`:""}
+      <label style="margin-top:2px">Notiz (optional)</label>
+      <input type="text" value="${esc(S.pending.notiz||"")}" placeholder="z. B. defekt, läuft nicht"
+        oninput="S.pending.notiz=this.value">
       <button class="btn go" onclick="uebernehmen()" ${S.buf?"":"disabled"}>Speichern — nächstes Gerät</button>`;
     return;
   }
@@ -930,7 +947,7 @@ function render(){
       ${err.length?`<div class="banner red"><b>${err.length} nicht gesendet</b>
         ${esc(err[0].fehler||"")}</div>`:""}
       ${rows.length?rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
-        <span class="idx">${i+1}</span><span class="id">${esc(r.code)}</span>
+        <span class="idx">${i+1}</span><span class="id">${esc(r.code)}${r.notiz?`<small>${esc(r.notiz)}</small>`:""}</span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
         <span class="val">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
@@ -1027,13 +1044,13 @@ function exportServer(){
   const es=v.erfassungen, mieter=(es.find(r=>r.mieter)||{}).mieter||"";
   const a=[["Büro-Archiv – Bautrocknung"],["Projektnummer:",v.projektnummer],["Mieter:",mieter],
            ["Erzeugt:",wann(Date.now())],[]];
-  a.push(["Nr.","Gerät","Standort","Modus","Datum/Uhrzeit","kWh","Differenz","Gerätetyp"]);
-  es.forEach((r,i)=>a.push([i+1,r.code,r.standort||"",r.modus,wann(r.erfasst_am),r.kwh,r.differenz??"",r.typ||""]));
+  a.push(["Nr.","Gerät","Standort","Modus","Datum/Uhrzeit","kWh","Differenz","Gerätetyp","Notiz"]);
+  es.forEach((r,i)=>a.push([i+1,r.code,r.standort||"",r.modus,wann(r.erfasst_am),r.kwh,r.differenz??"",r.typ||"",r.notiz||""]));
   const ab=es.filter(r=>r.modus==="abbau");
   if(ab.length){const s=ab.reduce((x,r)=>x+(Number(r.differenz)||0),0);
     a.push([]);a.push(["","","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
   const ws=XLSX.utils.aoa_to_sheet(a);
-  ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18}];
+  ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18},{wch:20}];
   const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Büro-Archiv");
   const fn=`Buero-Archiv_${String(v.projektnummer).replace(/\s+/g,"")}.xlsx`;
   try{const out=XLSX.write(b,{bookType:"xlsx",type:"array"});
@@ -1042,11 +1059,27 @@ function exportServer(){
       return void navigator.share({files:[file],title:"Büro-Archiv "+v.projektnummer});}catch(e){}
   XLSX.writeFile(b,fn);
 }
+// Roadmap #8: Mehrere Baustellen am Tag — die letzten Projekte merken und
+// im Setup als antippbare Chips anbieten. Zugangscode + Modus bleiben stehen,
+// nur Projekt und Mieter wechseln. Rein lokal (localStorage), max 4.
+const LETZTEKEY="torrek-scan.letzte";
+function letzteLaden(){try{return JSON.parse(localStorage.getItem(LETZTEKEY)||"[]")}catch(e){return[]}}
+function merkeBaustelle(projekt,mieter){
+  const l=[{projekt,mieter}].concat(letzteLaden().filter(x=>x.projekt!==projekt)).slice(0,4);
+  try{localStorage.setItem(LETZTEKEY,JSON.stringify(l))}catch(e){}
+}
+function nutzeLetzte(i){
+  sichereSetupFelder();
+  const l=letzteLaden()[i]; if(!l) return;
+  S.cfg.projekt=l.projekt; S.cfg.mieter=l.mieter||"";
+  render(); toast("Baustelle gewechselt: "+l.projekt);
+}
 // FR-SCAN-001/002: Setup einmal ausfüllen; ohne Code/Projekt kein Start.
 async function los(){
   S.cfg.code=$("c").value.trim(); S.cfg.projekt=$("p").value.trim(); S.cfg.mieter=$("m").value.trim();
   if(!S.cfg.code||!S.cfg.projekt){toast("Code und Projektnummer fehlen");return}
   localStorage.setItem(KEY,JSON.stringify(S.cfg));
+  merkeBaustelle(S.cfg.projekt,S.cfg.mieter);
   await ladeStammdaten();
   await ladeOffen();
   if(S.cfg.modus==="abbau"&&!S.offen.length&&navigator.onLine)
@@ -1094,8 +1127,15 @@ async function uebernehmen(){
   const auf=refWert(S.pending.code);
   const warn=unplausibel(v,auf,S.cfg.modus);
   if(warn&&!confirm(warn+"\n\nStimmt der Wert wirklich — trotzdem speichern?")) return;
+  // Roadmap #6: Foto-Erinnerung/-Pflicht (Stufe kommt vom Büro/Server).
+  if(!S.pending.foto){
+    const stufe=fotoStufe();
+    if(stufe==="pflicht"){ toast("Ohne Foto vom Zähler geht es nicht — Büro-Vorgabe"); return; }
+    if(stufe==="hinweis"&&!confirm("Kein Foto vom Zähler.\n\nOhne Beleg speichern?")) return;
+  }
   const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,foto:S.pending.foto||null,
     geraetetyp_id:S.pending.geraetetyp_id||null,standort:(S.pending.standort||"").trim()||null,
+    notiz:(S.pending.notiz||"").trim()||null,
     projekt:S.cfg.projekt,mieter:S.cfg.mieter,modus:S.cfg.modus,status:"pending",ts:Date.now()};
   if(auf!=null){r.auf=auf;r.diff=v-auf}
   S.rows.push(r); await DB.put(r);

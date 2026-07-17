@@ -11,6 +11,10 @@
 // NEU (Archiv): aktion "verlauf" — liest zu einer Projektnummer ALLE
 // Erfassungen (Aufbau + Abbau, geräteübergreifend) rein aus scan_erfassung,
 // inkl. serverseitig berechneter Differenz. Read-only, additiv.
+//
+// v4 (Feld-Helfer): Notiz je Gerät (Spalte scan_erfassung.notiz, additiv)
+// wird gespeichert und im Verlauf ausgegeben; "stammdaten" liefert zusätzlich
+// Büro-Einstellungen (foto_pflicht: aus | hinweis | pflicht) aus scan_einstellung.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -50,6 +54,7 @@ Deno.serve(async (req) => {
     const b = await req.json();
 
     // Typ-Liste (nur lesend aus geraetetyp) + bisher gescannte Typen aus der EIGENEN Tabelle
+    // + Büro-Einstellungen (z. B. foto_pflicht), damit die App sie offline cachen kann.
     if (b.aktion === "stammdaten") {
       const { data: typen } = await db.from("geraetetyp")
         .select("id, bezeichnung").order("bezeichnung");
@@ -57,7 +62,11 @@ Deno.serve(async (req) => {
         .select("code, typ_id").not("typ_id", "is", null);
       const bekannt: Record<string, string> = {};
       for (const g of gesehen ?? []) bekannt[g.code] = g.typ_id!;
-      return json({ typen: typen ?? [], bekannt });
+      const { data: einst } = await db.from("scan_einstellung")
+        .select("schluessel, wert").in("schluessel", ["foto_pflicht"]);
+      const einstellungen: Record<string, string> = {};
+      for (const e of einst ?? []) einstellungen[e.schluessel] = e.wert;
+      return json({ typen: typen ?? [], bekannt, einstellungen });
     }
 
     // Offene Aufbäuten eines Projekts = Aufbau vorhanden, Abbau fehlt.
@@ -84,7 +93,7 @@ Deno.serve(async (req) => {
       const pn = norm(b.projektnummer);
       if (!pn) return json({ fehler: "Projektnummer fehlt" }, 400);
       const { data: alle } = await db.from("scan_erfassung")
-        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort")
+        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort, notiz")
         .eq("projektnummer", pn).order("erfasst_am");
       const rows = alle ?? [];
       // Typ-Bezeichnungen (read-only aus geraetetyp)
@@ -104,6 +113,7 @@ Deno.serve(async (req) => {
         typ: r.typ_id ? (typName[r.typ_id] ?? null) : null,
         erfasst_am: r.erfasst_am,
         standort: r.standort ?? null,
+        notiz: r.notiz ?? null,
         differenz: r.modus === "abbau" && aufKwh[r.code] != null
           ? +(Number(r.kwh) - aufKwh[r.code]).toFixed(2) : null,
         hat_foto: !!r.foto_ref,
@@ -147,6 +157,7 @@ Deno.serve(async (req) => {
       local_id, projektnummer: pn, mieter: norm(b.mieter) || null,
       code, typ_id: norm(b.typ_id) || null, modus, kwh, foto_ref: foto,
       standort: norm(b.standort) || null,
+      notiz: norm(b.notiz) || null,
     }, { onConflict: "local_id" });
     if (error) throw new Error(error.message);
 

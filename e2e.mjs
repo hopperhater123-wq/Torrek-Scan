@@ -386,6 +386,109 @@ try {
     check('Projektnummer-Scan behält Leerzeichen (kein Ziffernfilter)', (await page.inputValue('#p')).includes(' '));
     await ctx.close();
   }
+
+  // ============ Szenario K — Notiz je Gerät ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    await page.fill('input[placeholder*="defekt"]', 'läuft nicht');
+    for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(600);
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(500);
+    check('Notiz erscheint in der Liste', (await page.$eval('.row .id small', e => e.textContent).catch(() => '')).includes('läuft nicht'));
+    const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });
+    check('Excel mit Notiz-Spalte baut ohne Fehler', excelOk);
+    await page.evaluate(() => go('archiv'));
+    await page.waitForTimeout(300);
+    await page.click('.arow');
+    await page.waitForTimeout(300);
+    check('Notiz erscheint im Archiv-Detail', (await page.$eval('.row .id small', e => e.textContent).catch(() => '')).includes('läuft nicht'));
+    await ctx.close();
+  }
+
+  // ============ Szenario L — Foto-Erinnerung (Büro-Einstellung "hinweis") ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctx.route('**/functions/v1/**', async route => {
+      let aktion = ''; try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+      const bodies = {
+        stammdaten: { typen: [{ id: 't1', bezeichnung: 'Kondenstrockner TK-30' }], bekannt: {}, einstellungen: { foto_pflicht: 'hinweis' } },
+        projekt: { offen: [] }, erfassen: { ok: true },
+      };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    });
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
+    let fotoGefragt = false;
+    page.once('dialog', d => { fotoGefragt = d.message().includes('Foto'); d.accept(); });
+    await page.click('text=Speichern');
+    await page.waitForTimeout(600);
+    check('Foto-Hinweis: ohne Foto wird nachgefragt', fotoGefragt);
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(500);
+    check('Foto-Hinweis: nach Bestätigung gespeichert', (await crumb(page)) === '1 Gerät');
+    await ctx.close();
+  }
+
+  // ============ Szenario M — „Alles gesendet?"-Check im Setup ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctx.route('**/functions/v1/**', r => r.abort());   // offline → Erfassung bleibt pending
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen .unk'); await page.waitForTimeout(300); }
+    for (const n of '1234') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(600);
+    await page.evaluate(() => go('setup'));
+    await page.waitForTimeout(400);
+    const bannerTxt = await page.$eval('.banner.amber', e => e.textContent).catch(() => '');
+    check('Setup: „Alles gesendet?"-Banner bei offenen Erfassungen', bannerTxt.includes('Alles gesendet?'));
+    check('Setup: „Jetzt senden"-Knopf vorhanden', await page.$('button:has-text("Jetzt senden")') !== null);
+    await ctx.close();
+  }
+
+  // ============ Szenario N — Letzte Baustellen (schneller Projektwechsel) ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});                       // merkt „2026 033996 · Wimmer"
+    await onScanScreen(page);
+    await page.evaluate(() => go('setup'));
+    await page.waitForTimeout(400);
+    check('Setup: Letzte-Baustellen-Chip erscheint', await page.$('button.chip:has-text("2026 033996")') !== null);
+    await page.fill('#p', '');                   // Feld leeren, dann per Chip wechseln
+    await page.click('button.chip:has-text("2026 033996")');
+    await page.waitForTimeout(300);
+    check('Chip füllt Projektnummer wieder ein', (await page.inputValue('#p')) === '2026 033996');
+    check('Chip füllt Mieter wieder ein', (await page.inputValue('#m')) === 'Wimmer');
+    await ctx.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);
