@@ -185,6 +185,15 @@ try {
     const dt = await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '');
     check('Archiv-Detail zeigt exaktes Datum + Uhrzeit', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/.test(dt));
 
+    // Export „Excel erneut erzeugen": ohne Teilen-Ziel muss ein Download entstehen
+    // (nie stillschweigend nichts) — Regression zum Feld-Bug.
+    let archivDl = null;
+    page.on('download', d => { archivDl = d.suggestedFilename(); });
+    await page.evaluate(() => { navigator.canShare = () => false; });
+    await page.click('button:has-text("Excel erneut erzeugen")');
+    await page.waitForTimeout(800);
+    check('Archiv-Export erzeugt eine Datei (kein stilles Nichts)', /^Geraeteliste_.*\.xlsx$/.test(archivDl || ''));
+
     await ctx.close();
   }
 

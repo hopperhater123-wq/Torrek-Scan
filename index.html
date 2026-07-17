@@ -803,21 +803,40 @@ function wbFuer(projekt,modus,mieter){
 }
 const wb=()=>wbFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter);
 const fnameFuer=(projekt,modus)=>`Geraeteliste_${String(projekt).replace(/\s+/g,"")}_${modus==="abbau"?"Abbau":"Aufbau"}.xlsx`;
+const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+// Excel rausgeben — EIN robuster Weg für Liste UND Büro-Archiv.
+// Wichtig: nie stillschweigend nichts tun. Reihenfolge:
+//  1) Teilen (Handy) wenn möglich; bricht der Nutzer ab (AbortError), ist das gewollt.
+//  2) Teilen nicht möglich / schlägt fehl → Download als Blob + sichtbarer Toast.
+//  3) Jeder Fehler wird als Toast gemeldet statt verschluckt.
+async function excelRaus(buch,fn,titel,text){
+  let out;
+  try{ out=XLSX.write(buch,{bookType:"xlsx",type:"array"}); }
+  catch(e){ toast("Excel konnte nicht erzeugt werden"); return; }
+  const file=new File([out],fn,{type:XLSX_MIME});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file],title:titel,text}); return; }
+    catch(e){ if(e&&e.name==="AbortError") return; }   // abgebrochen: gewollt
+    // Teilen fehlgeschlagen (kein Ziel o. ä.) → Download-Fallback
+  }
+  try{
+    const url=URL.createObjectURL(new Blob([out],{type:XLSX_MIME}));
+    const a=document.createElement("a"); a.href=url; a.download=fn;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+    toast("Excel gespeichert: "+fn);
+  }catch(e){ toast("Excel-Export auf diesem Gerät nicht möglich"); }
+}
 // FR-SCAN-050/052: Excel als Zettel fürs Büro — teilen, sonst Download.
 async function sendenFuer(projekt,modus,mieter){
   const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
+  if(!rows.length){ toast("Diese Liste ist leer — nichts zu exportieren"); return; }
   const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
-  const listenTag=rows.length?tag(rows[0].ts):heute();
+  const listenTag=tag(rows[0].ts);
   const betreff=`Geräteliste ${projekt} — ${ab?"Abbau":"Aufbau"} ${listenTag}`;
   const text=`Projekt: ${projekt}\nMieter: ${mieter}\nGeräte: ${rows.length}\n`+
     (ab?`Gesamtverbrauch: ${fmt(+sum.toFixed(2))} kWh\n`:"");
-  try{
-    const out=XLSX.write(wbFuer(projekt,modus,mieter),{bookType:"xlsx",type:"array"});
-    const file=new File([out],fnameFuer(projekt,modus),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-    if(navigator.canShare&&navigator.canShare({files:[file]}))
-      return void await navigator.share({files:[file],title:betreff,text});
-  }catch(e){}
-  XLSX.writeFile(wbFuer(projekt,modus,mieter),fnameFuer(projekt,modus));
+  await excelRaus(wbFuer(projekt,modus,mieter),fnameFuer(projekt,modus),betreff,text);
 }
 async function senden(){ return sendenFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter); }
 
@@ -1145,11 +1164,7 @@ function exportServer(){
   ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18},{wch:20}];
   const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Büro-Archiv");
   const fn=`Buero-Archiv_${String(v.projektnummer).replace(/\s+/g,"")}.xlsx`;
-  try{const out=XLSX.write(b,{bookType:"xlsx",type:"array"});
-    const file=new File([out],fn,{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-    if(navigator.canShare&&navigator.canShare({files:[file]}))
-      return void navigator.share({files:[file],title:"Büro-Archiv "+v.projektnummer});}catch(e){}
-  XLSX.writeFile(b,fn);
+  excelRaus(b,fn,"Büro-Archiv "+v.projektnummer,"");
 }
 // Roadmap #8: Mehrere Baustellen am Tag — die letzten Projekte merken und
 // im Setup als antippbare Chips anbieten. Zugangscode + Modus bleiben stehen,

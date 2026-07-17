@@ -90,7 +90,7 @@ Server und **mockt bzw. blockiert die Edge Function** — es geht nie ein echter
 Supabase raus. Deckt u. a. Setup, Aufbau, Abbau-Differenz, Offline, Hell/Dunkel, Büro-Archiv,
 Standort, Löschen/Papierkorb, Tippfehler-Bremse, Foto-Erinnerung, letzte Baustellen und den
 Scanner-Kern (selbst erzeugter CODE-128 durch den echten Foto-Weg) und die
-Zählerstand- und Nummern-Korrektur ab — **62 Checks**.
+Zählerstand- und Nummern-Korrektur sowie den Excel-Export ab — **63 Checks**.
 
 ```bash
 # aus dem Repo-Wurzelverzeichnis (nutzt playwright-core aus dem Wurzel-node_modules)
