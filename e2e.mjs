@@ -682,6 +682,35 @@ try {
     check('Mail-Entwurf: Gerät im Text', entwurf.includes('123456789012'));
     await ctx.close();
   }
+
+  // ============ Szenario R — Android-Zurück-Taste (History) + ‹ zur Hauptseite ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    // System-Zurück (Samsung-Taste) = history.back(): zurück ins Setup, NICHT aus der App
+    await page.goBack();
+    await page.waitForTimeout(500);
+    check('System-Zurück: zurück im Setup statt App-Exit', await page.$('#c') !== null);
+    check('System-Zurück: URL bleibt die App (kein Verlassen)', page.url().startsWith(base));
+    // Wieder rein und tiefer: scan → Liste → System-Zurück → scan
+    await page.click('text=Loslegen');
+    await onScanScreen(page);
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(500);
+    await page.goBack();
+    await page.waitForTimeout(500);
+    check('System-Zurück aus der Liste: zurück im Scanner', await page.$('.stage') !== null);
+    // ‹-Pfeil im Scanner führt jetzt zur Hauptseite (Setup)
+    await page.click('.back');
+    await page.waitForTimeout(500);
+    check('‹ im Scanner führt zur Hauptseite (Setup)', await page.$('#c') !== null);
+    await ctx.close();
+  }
 } catch (e) {
   check('Testlauf ohne unerwartete Ausnahme', false);
   console.error('\nAusnahme:', e && e.message);

@@ -755,7 +755,7 @@ function onScan(code){
   }
   treffer(); stopCam(); S.pending={code}; S.buf="";
   // Typ nur fragen, wenn er noch fehlt — bei bekannten Geräten passiert gar nichts.
-  setTimeout(()=>{ S.screen = brauchtTyp(code) ? "typ" : "wert"; render(); }, ruhig?0:170);
+  setTimeout(()=>{ go(brauchtTyp(code) ? "typ" : "wert"); }, ruhig?0:170);
 }
 function treffer(){
   const b=document.getElementById("blitz"), st=document.querySelector(".stage");
@@ -1013,7 +1013,7 @@ function render(){
   }
 
   if(S.screen==="scan"){
-    bar.innerHTML=`<button class="back" onclick="zurueck('liste')">‹</button>
+    bar.innerHTML=`<button class="back" onclick="zurueck('setup')">‹</button>
       <span class="crumb">${esc(S.cfg.projekt)}</span>${pill}${netz}`;
     const fehlt=fehlende();
     app.innerHTML=`
@@ -1151,8 +1151,22 @@ function render(){
 function sichereSetupFelder(){const c=$("c"),p=$("p"),mm=$("m");
   if(c)S.cfg.code=c.value; if(p)S.cfg.projekt=p.value; if(mm)S.cfg.mieter=mm.value;}
 function setModus(m){sichereSetupFelder();S.cfg.modus=m;render();}
-function go(s){stopCam();S.screen=s;render()}
+// Samsung-/Android-Zurück-Taste: jede Screen-Navigation legt einen Eintrag im
+// Browser-Verlauf an. Die System-Zurück-Taste läuft dann IN der App zurück
+// (popstate) statt sie zu beenden — vorher flog man raus und das Intro lief neu.
+let ausHistory=false;
+function go(s){stopCam();S.screen=s;
+  if(!ausHistory){ try{history.pushState({screen:s},"")}catch(e){} }
+  render()}
 function zurueck(s){S.zurueck=true;go(s)}
+try{history.replaceState({screen:S.screen},"")}catch(e){}
+window.addEventListener("popstate",e=>{
+  ausHistory=true;
+  const s=(e.state&&e.state.screen)||"setup";
+  if(s!=="typ"&&s!=="wert") S.pending=null;   // wie der ‹-Pfeil: Halbes verwerfen
+  S.zurueck=true; go(s);
+  ausHistory=false;
+});
 // Archiv: eine frühere Liste öffnen, live filtern (ohne Re-Render), erneut exportieren.
 function oeffneArchiv(p,m){const g=archivGruppen().find(x=>x.projekt===p&&x.modus===m);
   S.archivSel={projekt:p,modus:m,mieter:g?g.mieter:""};go("archivDetail");}
