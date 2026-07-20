@@ -46,16 +46,20 @@ const browser = await chromium.launch({ executablePath: EXE, headless: true,
 
 // Mock-Antworten der Edge Function je nach aktion.
 async function mockFn(ctx, { offen = [] } = {}) {
+  const calls = [];                       // alle Requests an die (gemockte) Function
   await ctx.route('**/functions/v1/**', async route => {
-    let aktion = '';
-    try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+    let body = {};
+    try { body = JSON.parse(route.request().postData() || '{}'); } catch {}
+    calls.push(body);
     const bodies = {
       stammdaten: { typen: [{ id: 't1', bezeichnung: 'Kondenstrockner TK-30' }, { id: 't2', bezeichnung: 'Ventilator V-9' }], bekannt: {} },
       projekt: { offen },
       erfassen: { geraet_neu_angelegt: true },
+      korrigieren: { ok: true, kwh: body.kwh, code: body.code, kwh_alt: 0, differenz: null },
     };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[body.aktion] ?? {}) });
   });
+  return calls;
 }
 
 const setup = async (page, { code = 'CODE1', projekt = '2026 033996', mieter = 'Wimmer', modus = 'aufbau' } = {}) => {
@@ -75,7 +79,7 @@ try {
   // ============ Szenario A — Aufbau (online, gemockt) ============
   {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
-    await mockFn(ctx);
+    const calls = await mockFn(ctx);
     const page = await ctx.newPage();
     await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(2600);
@@ -131,6 +135,42 @@ try {
     await page.waitForTimeout(700);
     check('Liste-Crumb Plural "2 Geräte"', (await crumb(page)) === '2 Geräte');
 
+    // Korrektur (vertippt): Wert antippen -> neuer Stand -> geht als "korrigieren" raus
+    page.once('dialog', d => d.accept('4300'));
+    await page.click('.row .val.korr');
+    await page.waitForTimeout(1000);
+    const valNeu = await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''));
+    check('Korrektur: Liste zeigt neuen Wert (4.300)', valNeu.includes('4.300'));
+    check('Korrektur ging als "korrigieren" an den Server', calls.some(c => c.aktion === 'korrigieren' && c.kwh === 4300));
+    check('Korrigierte Zeile wieder synced (↑)', (await page.$eval('.row .st', e => e.textContent.trim())) === '↑');
+
+    // Ungültige Eingabe wird abgewiesen, Wert bleibt
+    page.once('dialog', d => d.accept('abc'));
+    await page.click('.row .val.korr');
+    await page.waitForTimeout(500);
+    check('Korrektur: Unsinn wird abgewiesen', (await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''))).includes('4.300'));
+
+    // EAN-Prüfziffer: gültige 13. Ziffer wird abgeschnitten, ungültige bleibt
+    const ean = await page.evaluate(() => [ohnePruefziffer('5100000026095'), ohnePruefziffer('5100000026094'), ohnePruefziffer('123456789012')]);
+    check('EAN-13: gültige Prüfziffer wird abgeschnitten', ean[0] === '510000002609');
+    check('EAN-13: falsche Prüfziffer bleibt unangetastet', ean[1] === '5100000026094');
+    check('12-Steller bleibt unverändert', ean[2] === '123456789012');
+
+    // Nummern-Korrektur: Code antippen -> neue Nummer (mit Prüfziffer, wird gestutzt)
+    page.once('dialog', d => d.accept('5100000026095'));
+    await page.click('.row .id .korr');
+    await page.waitForTimeout(1000);
+    const idNeu = await page.$eval('.row .id', e => e.textContent);
+    check('Nummer korrigiert + Prüfziffer gestutzt (510000002609)', idNeu.includes('510000002609'));
+    check('Nummern-Korrektur ging als "korrigieren" mit code raus', calls.some(c => c.aktion === 'korrigieren' && c.code === '510000002609'));
+
+    // Doppel-Wächter: Nummer der zweiten Zeile auf die erste setzen -> abgelehnt
+    page.once('dialog', d => d.accept('510000002609'));
+    await page.click('.row:nth-of-type(2) .id .korr');
+    await page.waitForTimeout(500);
+    const zweite = await page.$eval('.row:nth-of-type(2) .id', e => e.textContent);
+    check('Doppel-Wächter: Nummer bleibt bei Kollision unverändert', zweite.includes('222333444555'));
+
     // Excel-Erzeugung wirft nicht (Aufbau)
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });
     check('Excel-Workbook baut ohne Fehler (Aufbau)', excelOk);
@@ -144,6 +184,15 @@ try {
     await page.waitForTimeout(300);
     const dt = await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '');
     check('Archiv-Detail zeigt exaktes Datum + Uhrzeit', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/.test(dt));
+
+    // Export „Excel erneut erzeugen": ohne Teilen-Ziel muss ein Download entstehen
+    // (nie stillschweigend nichts) — Regression zum Feld-Bug.
+    let archivDl = null;
+    page.on('download', d => { archivDl = d.suggestedFilename(); });
+    await page.evaluate(() => { navigator.canShare = () => false; });
+    await page.click('button:has-text("Excel erneut erzeugen")');
+    await page.waitForTimeout(800);
+    check('Archiv-Export erzeugt eine Datei (kein stilles Nichts)', /^Geraeteliste_.*\.xlsx$/.test(archivDl || ''));
 
     await ctx.close();
   }

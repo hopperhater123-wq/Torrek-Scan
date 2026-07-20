@@ -16,7 +16,14 @@
 // wird gespeichert und im Verlauf ausgegeben; "stammdaten" liefert zusätzlich
 // Büro-Einstellungen (foto_pflicht: aus | hinweis | pflicht) aus scan_einstellung.
 //
-// v5 (mehrere Mieter je Liste): "projekt" (offen) liefert den Mieter des
+// v6 (Korrektur): aktion "korrigieren" — vertippten kWh-Stand einer Erfassung
+// ändern (Spalten kwh_alt + korrigiert_am, additiv). Der ursprüngliche Wert
+// bleibt in kwh_alt nachvollziehbar; der Verlauf kennzeichnet Korrekturen.
+//
+// v7: "korrigieren" kann zusätzlich die Etikettennummer (code) ändern —
+// mit Doppel-Wächter je Projekt+Modus; code_alt behält die erste Nummer.
+//
+// v8 (mehrere Mieter je Liste): "projekt" (offen) liefert den Mieter des
 // Aufbaus mit, damit der Abbau ihn je Gerät erbt; Einstellungen zusätzlich
 // buero_email (optional) für den E-Mail-Entwurf der App.
 
@@ -98,7 +105,7 @@ Deno.serve(async (req) => {
       const pn = norm(b.projektnummer);
       if (!pn) return json({ fehler: "Projektnummer fehlt" }, 400);
       const { data: alle } = await db.from("scan_erfassung")
-        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort, notiz")
+        .select("local_id, code, modus, kwh, mieter, typ_id, foto_ref, erfasst_am, standort, notiz, kwh_alt, code_alt, korrigiert_am")
         .eq("projektnummer", pn).order("erfasst_am");
       const rows = alle ?? [];
       // Typ-Bezeichnungen (read-only aus geraetetyp)
@@ -122,8 +129,61 @@ Deno.serve(async (req) => {
         differenz: r.modus === "abbau" && aufKwh[r.code] != null
           ? +(Number(r.kwh) - aufKwh[r.code]).toFixed(2) : null,
         hat_foto: !!r.foto_ref,
+        korrigiert: r.korrigiert_am != null,
+        kwh_alt: r.kwh_alt != null ? Number(r.kwh_alt) : null,
+        code_alt: r.code_alt ?? null,
       }));
       return json({ projektnummer: pn, erfassungen });
+    }
+
+    // v6/v7 — Korrektur: Zählerstand UND/ODER Etikettennummer einer bestehenden
+    // Erfassung ändern. Nachvollziehbar: kwh_alt/code_alt behalten den ERSTEN
+    // Wert, korrigiert_am den Zeitpunkt. Konsistenz: kein Doppel im Projekt,
+    // Abbau-Stand nicht unter dem Aufbau-Stand des (ggf. neuen) Gegenstücks.
+    if (b.aktion === "korrigieren") {
+      const local_id = norm(b.local_id);
+      if (!local_id) return json({ fehler: "local_id fehlt" }, 400);
+      const { data: row } = await db.from("scan_erfassung")
+        .select("local_id, projektnummer, code, modus, kwh, kwh_alt, code_alt")
+        .eq("local_id", local_id).maybeSingle();
+      if (!row) return json({ fehler: "Erfassung nicht gefunden" }, 404);
+
+      const kwh = b.kwh === undefined ? Number(row.kwh) : Number(b.kwh);
+      if (!isFinite(kwh) || kwh < 0) return json({ fehler: "Ungültiger Zählerstand" }, 400);
+      const code = b.code === undefined ? row.code : norm(b.code);
+      if (!/^\d{6,14}$/.test(code)) return json({ fehler: "Ungültige Etikettennummer" }, 400);
+
+      const { data: andere } = await db.from("scan_erfassung")
+        .select("modus, kwh, code").eq("projektnummer", row.projektnummer).neq("local_id", local_id);
+      // Doppel-Wächter: dieselbe Nummer im selben Modus existiert schon
+      if ((andere ?? []).some((r) => r.code === code && r.modus === row.modus)) {
+        return json({ fehler: `Für ${code} gibt es in diesem Projekt schon eine ${row.modus === "aufbau" ? "Aufbau" : "Abbau"}-Erfassung.` }, 409);
+      }
+      const gegen = (andere ?? []).find((r) => r.code === code && r.modus !== row.modus);
+      if (gegen) {
+        const start = row.modus === "aufbau" ? kwh : Number(gegen.kwh);
+        const ende = row.modus === "abbau" ? kwh : Number(gegen.kwh);
+        if (ende < start) return json({ fehler: "Endstand darf nicht kleiner als der Aufbau-Stand sein." }, 409);
+      }
+
+      const patch: Record<string, unknown> = {};
+      if (code !== row.code) { patch.code = code; patch.code_alt = row.code_alt ?? row.code; }
+      if (kwh !== Number(row.kwh)) { patch.kwh = kwh; patch.kwh_alt = row.kwh_alt ?? row.kwh; }
+      if (!Object.keys(patch).length) return json({ ok: true, unveraendert: true, kwh, code, differenz: null });
+      patch.korrigiert_am = new Date().toISOString();
+      const { error } = await db.from("scan_erfassung").update(patch).eq("local_id", local_id);
+      if (error) throw new Error(error.message);
+
+      const diff = gegen
+        ? +((row.modus === "abbau" ? kwh : Number(gegen.kwh)) - (row.modus === "aufbau" ? kwh : Number(gegen.kwh))).toFixed(2)
+        : null;
+      const warnung = row.modus === "abbau" && !gegen
+        ? "Für diese Nummer gibt es in diesem Projekt keinen Aufbau."
+        : diff != null && diff < 0 ? "Differenz negativ — Zähler übergelaufen oder vertippt." : null;
+      return json({
+        ok: true, kwh, code, kwh_alt: Number(row.kwh_alt ?? row.kwh),
+        code_alt: (patch.code_alt as string) ?? row.code_alt ?? null, differenz: diff, warnung,
+      });
     }
 
     if (b.aktion !== "erfassen") return json({ fehler: "Unbekannte Aktion" }, 400);
