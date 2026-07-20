@@ -46,20 +46,16 @@ const browser = await chromium.launch({ executablePath: EXE, headless: true,
 
 // Mock-Antworten der Edge Function je nach aktion.
 async function mockFn(ctx, { offen = [] } = {}) {
-  const calls = [];                       // alle Requests an die (gemockte) Function
   await ctx.route('**/functions/v1/**', async route => {
-    let body = {};
-    try { body = JSON.parse(route.request().postData() || '{}'); } catch {}
-    calls.push(body);
+    let aktion = '';
+    try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
     const bodies = {
       stammdaten: { typen: [{ id: 't1', bezeichnung: 'Kondenstrockner TK-30' }, { id: 't2', bezeichnung: 'Ventilator V-9' }], bekannt: {} },
       projekt: { offen },
       erfassen: { geraet_neu_angelegt: true },
-      korrigieren: { ok: true, kwh: body.kwh, code: body.code, kwh_alt: 0, differenz: null },
     };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[body.aktion] ?? {}) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
   });
-  return calls;
 }
 
 const setup = async (page, { code = 'CODE1', projekt = '2026 033996', mieter = 'Wimmer', modus = 'aufbau' } = {}) => {
@@ -79,7 +75,7 @@ try {
   // ============ Szenario A — Aufbau (online, gemockt) ============
   {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
-    const calls = await mockFn(ctx);
+    await mockFn(ctx);
     const page = await ctx.newPage();
     await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(2600);
@@ -135,42 +131,6 @@ try {
     await page.waitForTimeout(700);
     check('Liste-Crumb Plural "2 Geräte"', (await crumb(page)) === '2 Geräte');
 
-    // Korrektur (vertippt): Wert antippen -> neuer Stand -> geht als "korrigieren" raus
-    page.once('dialog', d => d.accept('4300'));
-    await page.click('.row .val.korr');
-    await page.waitForTimeout(1000);
-    const valNeu = await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''));
-    check('Korrektur: Liste zeigt neuen Wert (4.300)', valNeu.includes('4.300'));
-    check('Korrektur ging als "korrigieren" an den Server', calls.some(c => c.aktion === 'korrigieren' && c.kwh === 4300));
-    check('Korrigierte Zeile wieder synced (↑)', (await page.$eval('.row .st', e => e.textContent.trim())) === '↑');
-
-    // Ungültige Eingabe wird abgewiesen, Wert bleibt
-    page.once('dialog', d => d.accept('abc'));
-    await page.click('.row .val.korr');
-    await page.waitForTimeout(500);
-    check('Korrektur: Unsinn wird abgewiesen', (await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''))).includes('4.300'));
-
-    // EAN-Prüfziffer: gültige 13. Ziffer wird abgeschnitten, ungültige bleibt
-    const ean = await page.evaluate(() => [ohnePruefziffer('5100000026095'), ohnePruefziffer('5100000026094'), ohnePruefziffer('123456789012')]);
-    check('EAN-13: gültige Prüfziffer wird abgeschnitten', ean[0] === '510000002609');
-    check('EAN-13: falsche Prüfziffer bleibt unangetastet', ean[1] === '5100000026094');
-    check('12-Steller bleibt unverändert', ean[2] === '123456789012');
-
-    // Nummern-Korrektur: Code antippen -> neue Nummer (mit Prüfziffer, wird gestutzt)
-    page.once('dialog', d => d.accept('5100000026095'));
-    await page.click('.row .id .korr');
-    await page.waitForTimeout(1000);
-    const idNeu = await page.$eval('.row .id', e => e.textContent);
-    check('Nummer korrigiert + Prüfziffer gestutzt (510000002609)', idNeu.includes('510000002609'));
-    check('Nummern-Korrektur ging als "korrigieren" mit code raus', calls.some(c => c.aktion === 'korrigieren' && c.code === '510000002609'));
-
-    // Doppel-Wächter: Nummer der zweiten Zeile auf die erste setzen -> abgelehnt
-    page.once('dialog', d => d.accept('510000002609'));
-    await page.click('.row:nth-of-type(2) .id .korr');
-    await page.waitForTimeout(500);
-    const zweite = await page.$eval('.row:nth-of-type(2) .id', e => e.textContent);
-    check('Doppel-Wächter: Nummer bleibt bei Kollision unverändert', zweite.includes('222333444555'));
-
     // Excel-Erzeugung wirft nicht (Aufbau)
     const excelOk = await page.evaluate(() => { try { XLSX.write(wb(), { bookType: 'xlsx', type: 'array' }); return true; } catch { return false; } });
     check('Excel-Workbook baut ohne Fehler (Aufbau)', excelOk);
@@ -184,15 +144,6 @@ try {
     await page.waitForTimeout(300);
     const dt = await page.$eval('.row .id small', e => e.textContent.trim()).catch(() => '');
     check('Archiv-Detail zeigt exaktes Datum + Uhrzeit', /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/.test(dt));
-
-    // Export „Excel erneut erzeugen": ohne Teilen-Ziel muss ein Download entstehen
-    // (nie stillschweigend nichts) — Regression zum Feld-Bug.
-    let archivDl = null;
-    page.on('download', d => { archivDl = d.suggestedFilename(); });
-    await page.evaluate(() => { navigator.canShare = () => false; });
-    await page.click('button:has-text("Excel erneut erzeugen")');
-    await page.waitForTimeout(800);
-    check('Archiv-Export erzeugt eine Datei (kein stilles Nichts)', /^Geraeteliste_.*\.xlsx$/.test(archivDl || ''));
 
     await ctx.close();
   }
@@ -587,6 +538,99 @@ try {
     await page.waitForTimeout(700);
     const chipTxt = await page.$eval('.chip', e => e.textContent).catch(() => '');
     check('Foto-Weg: Barcode-Foto führt zum Typ-Screen', chipTxt.includes('800000006120'));
+    await ctx.close();
+  }
+
+  // ============ Szenario P — Mehrere Mieter je Liste ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await mockFn(ctx);
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});                                  // Standard-Mieter „Wimmer"
+    await onScanScreen(page);
+    // Gerät 1 — Mieter unangetastet (bleibt Wimmer)
+    await tippen(page, '111222333444');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    check('Wert-Screen: Mieter vorbelegt mit Setup-Mieter', (await page.inputValue('input[placeholder="Mieter dieser Wohnung"]')) === 'Wimmer');
+    for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(500);
+    // Gerät 2 — andere Wohnung, Mieter „Meier"
+    await tippen(page, '555666777888');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    await page.fill('input[placeholder="Mieter dieser Wohnung"]', 'Meier');
+    for (const n of '5000') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(500);
+    // Gerät 3 — erbt den zuletzt genutzten Mieter (Meier), nicht den Setup-Mieter
+    await tippen(page, '999000111222');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
+    check('Nächstes Gerät erbt zuletzt genutzten Mieter', (await page.inputValue('input[placeholder="Mieter dieser Wohnung"]')) === 'Meier');
+    await page.click('.back'); await page.waitForTimeout(300);   // Gerät 3 verwerfen
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(500);
+    const smalls = (await page.$$eval('.row .id small', els => els.map(e => e.textContent))).join(' | ');
+    check('Liste zeigt Mieter je Zeile (bei mehreren)', smalls.includes('Wimmer') && smalls.includes('Meier'));
+    const csv = await page.evaluate(() => XLSX.utils.sheet_to_csv(wb().Sheets['Geräteliste']));
+    check('Excel: Mieter je Zeile', csv.includes('Meier') && csv.includes('Wimmer'));
+    check('Excel-Kopf sagt „mehrere"', csv.includes('mehrere'));
+    await ctx.close();
+
+    // Abbau erbt den Mieter des Aufbaus (vom Server)
+    const ctxB = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctxB.route('**/functions/v1/**', async route => {
+      let aktion = ''; try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+      const bodies = { stammdaten: { typen: [], bekannt: {}, einstellungen: {} }, erfassen: { ok: true },
+        projekt: { offen: [{ geraet_inventarnummer: '999888777666', zaehlerstand_start: 1000, mieter: 'Huber' }] } };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    });
+    const pageB = await ctxB.newPage();
+    await pageB.goto(base, { waitUntil: 'load' });
+    await pageB.waitForTimeout(2600);
+    await setup(pageB, { modus: 'abbau' });
+    await onScanScreen(pageB);
+    await tippen(pageB, '999888777666');
+    await pageB.waitForTimeout(500);
+    if (await pageB.$('.typen')) { await pageB.click('.typen .unk'); await pageB.waitForTimeout(300); }
+    check('Abbau erbt Mieter des Aufbaus (Server)', (await pageB.inputValue('input[placeholder="Mieter dieser Wohnung"]')) === 'Huber');
+    await ctxB.close();
+  }
+
+  // ============ Szenario Q — Per E-Mail senden ============
+  {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    await ctx.route('**/functions/v1/**', async route => {
+      let aktion = ''; try { aktion = JSON.parse(route.request().postData() || '{}').aktion; } catch {}
+      const bodies = { stammdaten: { typen: [], bekannt: {}, einstellungen: { buero_email: 'buero@example.de' } },
+        projekt: { offen: [] }, erfassen: { ok: true } };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bodies[aktion] ?? {}) });
+    });
+    const page = await ctx.newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await setup(page, {});
+    await onScanScreen(page);
+    await tippen(page, '123456789012');
+    await page.waitForTimeout(400);
+    if (await page.$('.typen')) { await page.click('.typen .unk'); await page.waitForTimeout(300); }
+    for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
+    await page.click('text=Speichern');
+    await page.waitForTimeout(500);
+    await page.click('button:has-text("Liste")');
+    await page.waitForTimeout(400);
+    await page.click('text=Abschließen');
+    await page.waitForTimeout(400);
+    check('Abschluss: „Per E-Mail senden"-Knopf vorhanden', await page.$('button:has-text("Per E-Mail senden")') !== null);
+    const href = await page.evaluate(() => mailtoFuer('2026 033996', 'aufbau', 'Wimmer'));
+    check('Mail-Entwurf: Büro-Adresse vorausgefüllt', href.startsWith('mailto:buero%40example.de?'));
+    const entwurf = decodeURIComponent(href);
+    check('Mail-Entwurf: Betreff + Zählerstand im Text', href.includes('subject=') && entwurf.includes('4.217'));
+    check('Mail-Entwurf: Gerät im Text', entwurf.includes('123456789012'));
     await ctx.close();
   }
 } catch (e) {

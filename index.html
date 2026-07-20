@@ -244,8 +244,6 @@ input[type=file]{display:none}
 .st.p{background:var(--orange);color:#2A0F06}
 .st.s{background:var(--acid);color:#101A07}
 .st.e{background:var(--rot);color:#2A0806}
-.row .val.korr{cursor:pointer}
-.row .id .korr{cursor:pointer}
 .row .val{font-family:var(--mono);font-size:14.5px;text-align:right;font-weight:600;
   font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .row .val small{display:block;font-size:8.5px;color:var(--muted);letter-spacing:.08em;
@@ -499,6 +497,8 @@ function archivGruppen(geloescht=false){
     (g[k]||(g[k]={projekt:r.projekt,modus:r.modus,mieter:r.mieter,rows:[]})).rows.push(r);}
   return Object.values(g).map(x=>{const ts=x.rows.map(r=>r.ts);
     x.von=Math.min(...ts); x.bis=Math.max(...ts); x.n=x.rows.length;
+    const ms=[...new Set(x.rows.map(r=>r.mieter).filter(Boolean))];
+    x.mieter=ms.length>1?"mehrere Mieter":(ms[0]||x.mieter||"");
     x.geloeschtAm=geloescht?Math.max(...x.rows.map(r=>r.geloescht||0)):0; return x;})
     .sort((a,b)=>geloescht?b.geloeschtAm-a.geloeschtAm:b.bis-a.bis);
 }
@@ -547,14 +547,6 @@ async function syncen(){
   S.sync=true; render();
   for(const r of S.rows.filter(x=>x.status!=="synced"&&!x.geloescht)){
     try{
-      // Korrektur einer bereits gesendeten Zeile: eigener Auftrag statt erfassen
-      // (erfassen würde als „doppelt" abgewiesen und nichts ändern).
-      if(r.status==="korrektur"){
-        const j=await ruf({aktion:"korrigieren",local_id:r.local_id,kwh:r.wert,code:r.code});
-        r.status="synced"; r.fehler=null;
-        if(j.differenz!=null) r.diff=j.differenz;
-        await DB.put(r); continue;
-      }
       const j=await ruf({aktion:"erfassen",code:r.code,projektnummer:r.projekt,mieter:r.mieter,
         modus:r.modus,kwh:r.wert,foto:r.foto||null,local_id:r.local_id,
         typ_id:r.geraetetyp_id||null,standort:r.standort||null,notiz:r.notiz||null});
@@ -732,20 +724,9 @@ function verarbeiteScan(text,ziel){
   }
   onScan(text);
 }
-// EAN-Prüfziffer abschneiden (Etiketten-Realität): Der Etikettendrucker codiert
-// die 12 gedruckten Ziffern als EAN-13 — die Striche tragen eine 13. Ziffer
-// (Prüfziffer), der Klartext auf dem Etikett nicht. Damit Scan, Etikett und
-// Tippen dieselbe Nummer ergeben, wird eine GÜLTIGE Prüfziffer entfernt;
-// stimmt die Rechnung nicht, ist es ein echter 13-steller und bleibt ganz.
-function ohnePruefziffer(code){
-  if(!/^\d{13}$/.test(code)) return code;
-  let s=0; for(let i=0;i<12;i++) s+=(+code[i])*(i%2?3:1);
-  return (10-s%10)%10===+code[12] ? code.slice(0,12) : code;
-}
 // FR-SCAN-010/012/013: nur CODE-128-Ziffern übernehmen, keine Doppel,
 // im Abbau nur Geräte, die zu diesem Projekt gehören.
 function onScan(code){
-  code=ohnePruefziffer(code);
   if(S.pending||!/^\d{6,14}$/.test(code)) return;
   if(meine().some(r=>r.code===code)){toast("Schon erfasst: "+code);return}
   if(S.cfg.modus==="abbau"&&S.offen.length&&!S.offen.some(o=>o.geraet_inventarnummer===code)){
@@ -789,12 +770,16 @@ const shrink=file=>new Promise(res=>{const img=new Image(),u=URL.createObjectURL
 function wbFuer(projekt,modus,mieter){
   const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
   const listenTag=rows.length?tag(rows[0].ts):heute();
+  // Mehrere Mieter je Liste: der Mieter steht je Zeile; der Kopf sagt ehrlich,
+  // wenn es mehrere sind, statt einen einzelnen zu behaupten.
+  const ms=[...new Set(rows.map(r=>r.mieter||mieter).filter(Boolean))];
+  const kopfMieter=ms.length>1?"mehrere (siehe Spalte)":(ms[0]||mieter);
   const a=[["Geräteliste – Bautrocknung"],["Projektnummer:",projekt],["Datum:",listenTag],
-           ["Mieter:",mieter],[]];
+           ["Mieter:",kopfMieter],[]];
   a.push(ab?["Nr.","Gerät","Standort","Datum","Mieter","kWh Auf","kWh Ab","Differenz","Notiz"]
            :["Nr.","Gerät","Standort","Datum","Mieter","kWh","Auf","Ab","Notiz"]);
-  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.auf??"",r.wert,r.diff??"",r.notiz||""]
-                              :[i+1,r.code,r.standort||"",tag(r.ts),mieter,r.wert,"X","",r.notiz||""]));
+  rows.forEach((r,i)=>a.push(ab?[i+1,r.code,r.standort||"",tag(r.ts),r.mieter||mieter,r.auf??"",r.wert,r.diff??"",r.notiz||""]
+                              :[i+1,r.code,r.standort||"",tag(r.ts),r.mieter||mieter,r.wert,"X","",r.notiz||""]));
   if(ab){const s=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
     a.push([]);a.push(["","","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
   const ws=XLSX.utils.aoa_to_sheet(a);
@@ -803,42 +788,53 @@ function wbFuer(projekt,modus,mieter){
 }
 const wb=()=>wbFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter);
 const fnameFuer=(projekt,modus)=>`Geraeteliste_${String(projekt).replace(/\s+/g,"")}_${modus==="abbau"?"Abbau":"Aufbau"}.xlsx`;
-const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-// Excel rausgeben — EIN robuster Weg für Liste UND Büro-Archiv.
-// Wichtig: nie stillschweigend nichts tun. Reihenfolge:
-//  1) Teilen (Handy) wenn möglich; bricht der Nutzer ab (AbortError), ist das gewollt.
-//  2) Teilen nicht möglich / schlägt fehl → Download als Blob + sichtbarer Toast.
-//  3) Jeder Fehler wird als Toast gemeldet statt verschluckt.
-async function excelRaus(buch,fn,titel,text){
-  let out;
-  try{ out=XLSX.write(buch,{bookType:"xlsx",type:"array"}); }
-  catch(e){ toast("Excel konnte nicht erzeugt werden"); return; }
-  const file=new File([out],fn,{type:XLSX_MIME});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){
-    try{ await navigator.share({files:[file],title:titel,text}); return; }
-    catch(e){ if(e&&e.name==="AbortError") return; }   // abgebrochen: gewollt
-    // Teilen fehlgeschlagen (kein Ziel o. ä.) → Download-Fallback
-  }
-  try{
-    const url=URL.createObjectURL(new Blob([out],{type:XLSX_MIME}));
-    const a=document.createElement("a"); a.href=url; a.download=fn;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),1500);
-    toast("Excel gespeichert: "+fn);
-  }catch(e){ toast("Excel-Export auf diesem Gerät nicht möglich"); }
-}
 // FR-SCAN-050/052: Excel als Zettel fürs Büro — teilen, sonst Download.
 async function sendenFuer(projekt,modus,mieter){
   const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
-  if(!rows.length){ toast("Diese Liste ist leer — nichts zu exportieren"); return; }
   const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
-  const listenTag=tag(rows[0].ts);
+  const listenTag=rows.length?tag(rows[0].ts):heute();
+  const ms=[...new Set(rows.map(r=>r.mieter||mieter).filter(Boolean))];
   const betreff=`Geräteliste ${projekt} — ${ab?"Abbau":"Aufbau"} ${listenTag}`;
-  const text=`Projekt: ${projekt}\nMieter: ${mieter}\nGeräte: ${rows.length}\n`+
+  const text=`Projekt: ${projekt}\nMieter: ${ms.join(", ")||mieter}\nGeräte: ${rows.length}\n`+
     (ab?`Gesamtverbrauch: ${fmt(+sum.toFixed(2))} kWh\n`:"");
-  await excelRaus(wbFuer(projekt,modus,mieter),fnameFuer(projekt,modus),betreff,text);
+  try{
+    const out=XLSX.write(wbFuer(projekt,modus,mieter),{bookType:"xlsx",type:"array"});
+    const file=new File([out],fnameFuer(projekt,modus),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))
+      return void await navigator.share({files:[file],title:betreff,text});
+  }catch(e){}
+  XLSX.writeFile(wbFuer(projekt,modus,mieter),fnameFuer(projekt,modus));
 }
 async function senden(){ return sendenFuer(S.cfg.projekt,S.cfg.modus,S.cfg.mieter); }
+// Feld-Wunsch: direkt per E-Mail ans Büro — ohne Datei-Suche in der Mail-App.
+// Ein Browser kann keine Datei in eine Mail „hineinlegen"; die zwei besten Wege:
+// 1) System-Teilen-Menü mit der Excel als Datei (dort Mail wählen → Anhang dran).
+// 2) Wenn das Handy kein Datei-Teilen kann: Excel herunterladen und sofort einen
+//    FERTIGEN Mail-Entwurf öffnen (Betreff + alle Zahlen im Text, Empfänger aus
+//    der Büro-Einstellung) — nur noch die Datei aus Downloads anhängen.
+function mailtoFuer(projekt,modus,mieterFallback){
+  const ab=modus==="abbau", rows=rowsFuer(projekt,modus);
+  const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
+  const listenTag=rows.length?tag(rows[0].ts):heute();
+  const betreff=`Geräteliste ${projekt} — ${ab?"Abbau":"Aufbau"} ${listenTag}`;
+  const zeilen=rows.map((r,i)=>`${i+1}. ${r.code}${r.mieter?" · "+r.mieter:""}${r.standort?" · "+r.standort:""}: `+
+    (ab&&r.diff!=null?`${fmt(r.diff)} kWh Differenz`:`${fmt(r.wert)} kWh`)+(r.notiz?` (${r.notiz})`:"")).join("\n");
+  const body=`Projekt: ${projekt}\nDatum: ${listenTag}\nGeräte: ${rows.length}\n`+
+    (ab?`Gesamtverbrauch: ${fmt(+sum.toFixed(2))} kWh\n`:"")+`\n${zeilen}\n\n— erfasst mit Torrek Scan; Excel-Liste im Anhang bzw. in Downloads`;
+  return `mailto:${encodeURIComponent(S.einst.buero_email||"")}?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(body)}`;
+}
+async function perMail(){
+  const p=S.cfg.projekt, m=S.cfg.modus, f=S.cfg.mieter;
+  try{
+    const out=XLSX.write(wbFuer(p,m,f),{bookType:"xlsx",type:"array"});
+    const file=new File([out],fnameFuer(p,m),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))
+      return void await navigator.share({files:[file],title:`Geräteliste ${p}`});
+  }catch(e){ if(e&&e.name==="AbortError") return; }   // Nutzer hat das Teilen abgebrochen
+  try{ XLSX.writeFile(wbFuer(p,m,f),fnameFuer(p,m)); }catch(e){}
+  toast("Excel liegt in Downloads — im Mail-Entwurf anhängen");
+  location.href=mailtoFuer(p,m,f);
+}
 
 function zaehlHoch(el,ziel){
   if(!el) return;
@@ -935,6 +931,7 @@ function render(){
       <span class="crumb">${esc(sel.projekt)}</span><span class="pill ${av?"ab":""}">${av?"Abbau":"Aufbau"}</span>`;
     const sum=rows.reduce((x,r)=>x+(Number(r.diff)||0),0);
     const vonTag=rows.length?tag(rows[0].ts):"—", bisTag=rows.length?tag(rows[rows.length-1].ts):"—";
+    const multiM=new Set(rows.map(r=>r.mieter).filter(Boolean)).size>1;
     app.innerHTML=`
       <p class="meta"><b>Projekt</b> ${esc(sel.projekt)}<br><b>Mieter</b> ${esc(sel.mieter||'—')}<br>
         <b>Erfasst</b> ${vonTag}${vonTag!==bisTag?' – '+bisTag:''}<br><b>Geräte</b> ${rows.length}</p>
@@ -942,11 +939,11 @@ function render(){
         <div class="big">${fmt(+sum.toFixed(2))}<span>kWh</span></div></div>`:""}
       ${rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id"><span class="korr" onclick="korrigiereCode('${r.local_id}')" title="Nummer korrigieren">${esc(r.code)} ✎</span><small>${wann(r.ts)}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.ts)}${multiM&&r.mieter?" · "+esc(r.mieter):""}${r.standort?" · "+esc(r.standort):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
-        <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
-          <small>${av&&r.diff!=null?"Differenz":"kWh"} ✎</small></span></div>`).join("")}
+        <span class="val">${av&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
+          <small>${av&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`).join("")}
       <button class="btn primary" onclick="exportArchiv()">Excel erneut erzeugen</button>
       <button class="btn ghost" style="color:var(--rot);border-color:var(--rot)"
         onclick="listeLoeschen('${esc(sel.projekt)}','${sel.modus}')">Liste löschen</button>`;
@@ -962,7 +959,7 @@ function render(){
     const block=(titel,list,istAb)=>list.length?`<h1 style="font-size:16px;margin:16px 0 2px">${titel}</h1>`+
       list.map((r,i)=>`<div class="row ${r.differenz!=null&&r.differenz<0?"bad":""}" style="--i:${i}">
         <span class="idx">${i+1}</span>
-        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}${r.korrigiert?` · <b style="color:var(--acid)">korrigiert</b>${r.kwh_alt!=null?" (kWh war "+fmt(r.kwh_alt)+")":""}${r.code_alt?" (Nr. war "+esc(r.code_alt)+")":""}`:""}</small></span>
+        <span class="id">${esc(r.code)}<small>${wann(r.erfasst_am)}${r.standort?" · "+esc(r.standort):""}${r.typ?" · "+esc(r.typ):""}${r.notiz?" · "+esc(r.notiz):""}</small></span>
         <span class="val">${istAb&&r.differenz!=null?fmt(r.differenz):fmt(r.kwh)}
           <small>${istAb&&r.differenz!=null?"Differenz":"kWh"}</small></span></div>`).join(""):"";
     app.innerHTML=`
@@ -1020,6 +1017,10 @@ function render(){
     bar.innerHTML=`<button class="back" onclick="S.pending=null;zurueck('scan')">‹</button>
       <span class="crumb">Zählerstand</span>${pill}`;
     const auf=refWert(S.pending.code);
+    // Mehrere Mieter je Liste: Feld je Gerät, vorbelegt — beim Abbau mit dem
+    // Mieter des Aufbaus (Server), sonst mit dem zuletzt verwendeten.
+    if(S.pending.mieter==null)
+      S.pending.mieter=(ab&&mieterVon(S.pending.code))||S.aktMieter||S.cfg.mieter;
     app.innerHTML=`<span class="chip"><span class="dot"></span>${esc(S.pending.code)}</span>
       ${auf!=null?`<div class="banner amber"><b>Aufbau-Stand: ${fmt(auf)} kWh</b>
         Der jetzige Stand muss größer sein.</div>`:""}
@@ -1035,6 +1036,9 @@ function render(){
         ${S.pending.foto?`<img src="${S.pending.foto}" alt="">`:`<img alt="">`}
         <div><div class="t">${S.pending.foto?"Foto vom Zähler ✓":"Foto vom Zähler"}</div>
         <div class="s">${S.pending.foto?"Antippen zum Neu-Aufnehmen":"Beleg fürs Büro"}</div></div></div>
+      <label style="margin-top:2px">Mieter (je Gerät änderbar)</label>
+      <input type="text" value="${esc(S.pending.mieter||"")}" placeholder="Mieter dieser Wohnung"
+        oninput="S.pending.mieter=this.value">
       ${!ab?`<label style="margin-top:2px">Standort (optional)</label>
         <input type="text" value="${esc(S.pending.standort||"")}" placeholder="z. B. Keller links, EG Bad"
           oninput="S.pending.standort=this.value">`:""}
@@ -1057,12 +1061,15 @@ function render(){
         ${bad.map(r=>esc(r.code)).join(", ")} — Zähler übergelaufen oder vertippt.</div>`:""}
       ${err.length?`<div class="banner red"><b>${err.length} nicht gesendet</b>
         ${esc(err[0].fehler||"")}</div>`:""}
-      ${rows.length?rows.map((r,i)=>`<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
-        <span class="idx">${i+1}</span><span class="id"><span class="korr" onclick="korrigiereCode('${r.local_id}')" title="Nummer korrigieren">${esc(r.code)} ✎</span>${r.notiz?`<small>${esc(r.notiz)}</small>`:""}</span>
+      ${rows.length?rows.map((r,i)=>{
+        const multiM=new Set(rows.map(x=>x.mieter).filter(Boolean)).size>1;
+        const klein=[multiM?r.mieter:null,r.notiz].filter(Boolean).map(esc).join(" · ");
+        return `<div class="row ${r.diff!=null&&r.diff<0?"bad":""}" style="--i:${i}">
+        <span class="idx">${i+1}</span><span class="id">${esc(r.code)}${klein?`<small>${klein}</small>`:""}</span>
         <span class="st ${r.status==="synced"?"s":r.status==="error"?"e":"p"}">${
           r.status==="synced"?"↑":r.status==="error"?"!":"…"}</span>
-        <span class="val korr" onclick="korrigiere('${r.local_id}')" title="Zählerstand korrigieren">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
-          <small>${ab&&r.diff!=null?"Differenz":"kWh"} ✎</small></span></div>`).join("")
+        <span class="val">${ab&&r.diff!=null?fmt(r.diff):fmt(r.wert)}
+          <small>${ab&&r.diff!=null?"Differenz":"kWh"}</small></span></div>`;}).join("")
         :`<p class="empty">Noch nichts gescannt.</p>`}
       <button class="btn go" onclick="go('scan')">Weiter scannen</button>
       <button class="btn primary" onclick="go('senden')" ${rows.length?"":"disabled"}>Abschließen</button>
@@ -1089,9 +1096,10 @@ function render(){
         ${fehlt.slice(0,5).map(fehltLabel).join(", ")}</div>`:""}
       ${neu?`<div class="banner amber"><b>${neu} ${nomen(neu,"neues Gerät","neue Geräte")}</b>
         ${nomen(neu,"Stand","Standen")} noch nicht im Bestand.</div>`:""}
-      <p class="meta"><b>Projekt</b> ${esc(S.cfg.projekt)}<br><b>Mieter</b> ${esc(S.cfg.mieter)}<br>
+      <p class="meta"><b>Projekt</b> ${esc(S.cfg.projekt)}<br><b>Mieter</b> ${esc([...new Set(rows.map(r=>r.mieter).filter(Boolean))].join(", ")||S.cfg.mieter)}<br>
         <b>Datum</b> ${heute()}<br><b>Geräte</b> ${rows.length}</p>
       <button class="btn go" onclick="senden()">Excel erzeugen und ans Büro</button>
+      <button class="btn ghost" onclick="perMail()">Per E-Mail senden</button>
       <button class="btn ghost" onclick="go('setup')">Neue Liste</button>
       <p class="foot">Torrek Scan speichert getrennt von Torrek.<br>Die Excel ist der Zettel fürs Büro.</p>`;
     if(ab) zaehlHoch(document.getElementById("sum"),sum);
@@ -1155,16 +1163,20 @@ function exportServer(){
   const es=v.erfassungen, mieter=(es.find(r=>r.mieter)||{}).mieter||"";
   const a=[["Büro-Archiv – Bautrocknung"],["Projektnummer:",v.projektnummer],["Mieter:",mieter],
            ["Erzeugt:",wann(Date.now())],[]];
-  a.push(["Nr.","Gerät","Standort","Modus","Datum/Uhrzeit","kWh","Differenz","Gerätetyp","Notiz"]);
-  es.forEach((r,i)=>a.push([i+1,r.code,r.standort||"",r.modus,wann(r.erfasst_am),r.kwh,r.differenz??"",r.typ||"",r.notiz||""]));
+  a.push(["Nr.","Gerät","Mieter","Standort","Modus","Datum/Uhrzeit","kWh","Differenz","Gerätetyp","Notiz"]);
+  es.forEach((r,i)=>a.push([i+1,r.code,r.mieter||"",r.standort||"",r.modus,wann(r.erfasst_am),r.kwh,r.differenz??"",r.typ||"",r.notiz||""]));
   const ab=es.filter(r=>r.modus==="abbau");
   if(ab.length){const s=ab.reduce((x,r)=>x+(Number(r.differenz)||0),0);
-    a.push([]);a.push(["","","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
+    a.push([]);a.push(["","","","","","","Gesamtverbrauch",+s.toFixed(2),"kWh"]);}
   const ws=XLSX.utils.aoa_to_sheet(a);
-  ws["!cols"]=[{wch:5},{wch:16},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18},{wch:20}];
+  ws["!cols"]=[{wch:5},{wch:16},{wch:14},{wch:16},{wch:9},{wch:18},{wch:10},{wch:11},{wch:18},{wch:20}];
   const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,ws,"Büro-Archiv");
   const fn=`Buero-Archiv_${String(v.projektnummer).replace(/\s+/g,"")}.xlsx`;
-  excelRaus(b,fn,"Büro-Archiv "+v.projektnummer,"");
+  try{const out=XLSX.write(b,{bookType:"xlsx",type:"array"});
+    const file=new File([out],fn,{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))
+      return void navigator.share({files:[file],title:"Büro-Archiv "+v.projektnummer});}catch(e){}
+  XLSX.writeFile(b,fn);
 }
 // Roadmap #8: Mehrere Baustellen am Tag — die letzten Projekte merken und
 // im Setup als antippbare Chips anbieten. Zugangscode + Modus bleiben stehen,
@@ -1187,6 +1199,7 @@ async function los(){
   if(!S.cfg.code||!S.cfg.projekt){toast("Code und Projektnummer fehlen");return}
   localStorage.setItem(KEY,JSON.stringify(S.cfg));
   merkeBaustelle(S.cfg.projekt,S.cfg.mieter);
+  S.aktMieter=S.cfg.mieter;          // Startwert; je Gerät änderbar, App merkt sich den letzten
   await ladeStammdaten();
   await ladeOffen();
   if(S.cfg.modus==="abbau"&&!S.offen.length&&navigator.onLine)
@@ -1195,6 +1208,9 @@ async function los(){
 }
 function refWert(code){const o=S.offen.find(x=>x.geraet_inventarnummer===code);
   return o?Number(o.zaehlerstand_start):null;}
+// Mieter des Aufbaus zu einem offenen Gerät (vom Server) — der Abbau erbt ihn.
+function mieterVon(code){const o=S.offen.find(x=>x.geraet_inventarnummer===code);
+  return (o&&o.mieter)||"";}
 // Standort eines (offenen) Geräts, vom Server geladen — für die „Gerät vergessen"-Warnung.
 function standortVon(code){const o=S.offen.find(x=>x.geraet_inventarnummer===code);return o&&o.standort||"";}
 const fehltLabel=c=>esc(c)+(standortVon(c)?` (${esc(standortVon(c))})`:"");
@@ -1243,7 +1259,9 @@ async function uebernehmen(){
   const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,foto:S.pending.foto||null,
     geraetetyp_id:S.pending.geraetetyp_id||null,standort:(S.pending.standort||"").trim()||null,
     notiz:(S.pending.notiz||"").trim()||null,
-    projekt:S.cfg.projekt,mieter:S.cfg.mieter,modus:S.cfg.modus,status:"pending",ts:Date.now()};
+    projekt:S.cfg.projekt,mieter:(S.pending.mieter||"").trim()||S.cfg.mieter,
+    modus:S.cfg.modus,status:"pending",ts:Date.now()};
+  S.aktMieter=r.mieter;              // nächstes Gerät erbt den zuletzt genutzten Mieter
   if(auf!=null){r.auf=auf;r.diff=v-auf}
   S.rows.push(r); await DB.put(r);
   S.pending=null; S.buf="";
@@ -1256,50 +1274,6 @@ function tippen(){
   const c=v.trim().replace(/\D/g,"");
   if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}
   onScan(c);
-}
-// Vertippten Zählerstand nachträglich ändern (Wert in Liste/Verlauf antippen).
-// Lokal sofort; war die Zeile schon gesendet, geht die Korrektur als eigener
-// Auftrag ("korrigieren") an den Server, sobald Netz da ist. Der Server behält
-// den ursprünglichen Wert in kwh_alt — nichts verschwindet stillschweigend.
-async function korrigiere(id){
-  const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
-  const v=prompt("Neuer Zählerstand für "+r.code+" (bisher "+fmt(r.wert)+" kWh)",String(r.wert).replace(".",","));
-  if(v==null||!v.trim()) return;
-  const kwh=Number(v.trim().replace(",","."));
-  if(!isFinite(kwh)||kwh<0){toast("Ungültiger Zählerstand");return}
-  if(r.modus==="abbau"&&r.auf!=null&&kwh<Number(r.auf)){toast("Endstand liegt unter dem Aufbau-Stand ("+fmt(r.auf)+" kWh)");return}
-  if(kwh===Number(r.wert)) return;
-  r.wert=kwh;
-  if(r.modus==="abbau"&&r.auf!=null) r.diff=+(kwh-Number(r.auf)).toFixed(2);
-  if(r.status==="synced") r.status="korrektur"; // sonst nimmt das erste Senden den neuen Wert mit
-  await DB.put(r);
-  toast(r.code+" korrigiert: "+fmt(kwh)+" kWh");
-  render(); syncen();
-}
-// Auch die Etikettennummer ist korrigierbar (Nummer in Liste/Verlauf antippen) —
-// z. B. wenn versehentlich das falsche Gerät erwischt oder eine Nummer vertippt
-// wurde. Prüfziffer wird wie beim Scannen behandelt; Doppel in derselben Liste
-// sind gesperrt. Der Server behält die erste Nummer in code_alt.
-async function korrigiereCode(id){
-  const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
-  const v=prompt("Neue Etikettennummer (bisher "+r.code+")",r.code);
-  if(v==null||!v.trim()) return;
-  const c=ohnePruefziffer(v.trim().replace(/\D/g,""));
-  if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}
-  if(c===r.code) return;
-  if(S.rows.some(x=>x.local_id!==r.local_id&&!x.geloescht&&x.projekt===r.projekt&&x.modus===r.modus&&x.code===c)){
-    toast("Schon in der Liste: "+c); return;
-  }
-  const alt=r.code; r.code=c;
-  // Abbau: Aufbau-Stand zur neuen Nummer aus der Offen-Liste ziehen (falls bekannt).
-  if(r.modus==="abbau"){
-    const o=(S.offen||[]).find(x=>x.geraet_inventarnummer===c);
-    if(o){ r.auf=o.zaehlerstand_start; r.diff=+(r.wert-o.zaehlerstand_start).toFixed(2); }
-  }
-  if(r.status==="synced") r.status="korrektur";
-  await DB.put(r);
-  toast("Nummer geändert: "+alt+" → "+c);
-  render(); syncen();
 }
 
 /* ================= Start ================= */
