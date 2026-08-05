@@ -393,6 +393,24 @@ input[type=file]{display:none}
   transition:transform .38s var(--federn),opacity .28s var(--weich)}
 #toast.an{transform:translate(-50%,0);opacity:1}
 
+/* ── Field-Dialog: ersetzt prompt()/confirm() im eigenen Look ────
+   Natives <dialog> (Fokus-Falle, Esc, Barrierefreiheit ab Werk). */
+dialog{border:1px solid var(--line2);background:var(--panel);color:var(--paper);
+  padding:22px 20px;width:min(92vw,380px);margin:auto}
+dialog::backdrop{background:rgba(5,7,8,.72);backdrop-filter:blur(6px)}
+dialog h2{font-size:19px;letter-spacing:-.04em;font-weight:850;margin:0 0 8px;text-transform:uppercase}
+dialog p{font-size:13.5px;line-height:1.55;color:#C7D0CA;margin:0 0 14px;white-space:pre-line}
+:root[data-theme="light"] dialog p{color:#4A544F}
+dialog input{width:100%;padding:13px 0 12px;border:0;border-bottom:1px solid rgba(188,255,85,.5);
+  background:transparent;color:var(--paper);font-family:var(--mono);font-size:20px;
+  letter-spacing:.04em;margin-bottom:18px}
+dialog input:focus{outline:none;border-bottom-color:var(--acid)}
+.dlgrow{display:flex;gap:10px}
+.dlgrow .btn{margin:0;flex:1;min-height:52px;padding:14px}
+#dlgok.gefahr{background:var(--rot);color:#FFF;box-shadow:0 14px 34px -18px rgba(226,87,76,.9)}
+@keyframes dlgAuf{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+dialog[open]{animation:dlgAuf .3s var(--federn)}
+
 /* Wer Bewegung abstellt, bekommt keine. Kein Halbweg. */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
@@ -405,7 +423,17 @@ input[type=file]{display:none}
 <div id="glow" aria-hidden="true"></div><div id="wz" aria-hidden="true">TORREK</div>
 <div id="intro"><div class="bc"><div class="laserlinie"></div></div><div class="marke">Torrek <span>Scan</span></div><div class="untermarke">Field System</div></div>
 <div id="blitz"></div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dlg"><form method="dialog">
+  <h2 id="dlgtitel"></h2>
+  <p id="dlgtext"></p>
+  <input id="dlgin" type="text" autocomplete="off">
+  <div class="dlgrow">
+    <button type="button" class="btn ghost" onclick="dlg.close('')">Abbrechen</button>
+    <button value="ok" id="dlgok" class="btn go">OK</button>
+  </div>
+</form></dialog>
 
 <div class="wrap"><div class="bar" id="bar"></div><div id="app"></div></div>
 <input type="file" id="cam" accept="image/*" capture="environment">
@@ -421,8 +449,26 @@ const KEY = "torrek-scan.cfg";
 const ruhig = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Service Worker: App-Shell + Libs cachen → offline lauffähig und installierbar.
+// Der Cache ist cache-first — neue Versionen kämen sonst erst nach doppeltem
+// Neuöffnen an. Darum: Update selbst erkennen und zum Laden anbieten.
 if("serviceWorker" in navigator)
-  addEventListener("load",()=>navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{}));
+  addEventListener("load",async()=>{
+    try{
+      const hatteSW=!!navigator.serviceWorker.controller;   // Erstinstallation ≠ Update
+      const reg=await navigator.serviceWorker.register("sw.js",{updateViaCache:"none"});
+      reg.addEventListener("updatefound",()=>{
+        const w=reg.installing;
+        w&&w.addEventListener("statechange",()=>{ if(w.state==="activated"&&hatteSW) zeigUpdate(); });
+      });
+    }catch(e){}
+  });
+function zeigUpdate(){
+  const e=document.getElementById("toast"); clearTimeout(tt);
+  e.textContent="Neue Version bereit — antippen zum Laden";
+  e.classList.add("an"); e.style.cursor="pointer";
+  e.onclick=()=>location.reload();
+  tt=setTimeout(()=>{e.classList.remove("an");e.onclick=null;e.style.cursor="";},10000);
+}
 
 /* ================= Darstellung (Hell/Dunkel) =================
    Voreinstellung „auto" folgt dem System; „light"/"dark" erzwingen. */
@@ -621,7 +667,7 @@ function fotoScan(){scanZiel="geraet";stopCam();$("barcode").click();}
 function scanProjekt(){sichereSetupFelder();scanZiel="projekt";$("barcode").click();}
 let scanTimer=null, bandCv=null;
 function stopLoop(){ if(scanTimer){clearTimeout(scanTimer);scanTimer=null;} }
-function stopCam(){stopLoop();
+function stopCam(){stopLoop();lassSchlafen();
   if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}S.reader=null;S.torch=false;}
 // Eigene, sparsame Scan-Schleife statt der ZXing-Videoschleife: nativer
 // Detektor liest direkt vom <video>; der ZXing-Ersatz bekommt nur das
@@ -675,6 +721,7 @@ async function startCam(){
       if(caps&&caps.focusMode&&caps.focusMode.includes("continuous"))
         await tr.applyConstraints({advanced:[{focusMode:"continuous"}]});}catch(e){}
     const v=$("v"); v.srcObject=S.stream; await v.play();
+    halteWach();                                 // Bildschirm bleibt beim Scannen an
     scanSchleife(v);
   }catch(e){ $("camerr").innerHTML=`<div class="banner red"><b>Kamera geht nicht (${esc(e.name)})</b>
     Aus WhatsApp/Mail geöffnet? Link in Safari oder Chrome öffnen. Sonst unten eintippen.</div>`; }
@@ -768,9 +815,52 @@ function treffer(){
 let tt=null;
 function toast(m){
   const e=document.getElementById("toast"); clearTimeout(tt);
-  e.textContent=m; e.classList.add("an");
+  e.textContent=m; e.classList.add("an"); e.onclick=null; e.style.cursor="";
   tt=setTimeout(()=>e.classList.remove("an"),2400);
 }
+
+/* ================= Field-Dialog =================
+   Ersetzt prompt()/confirm(): gleiche Fragen, aber im eigenen Look, mit
+   großen Touch-Zielen. Natives <dialog> — Fokus, Esc und Vorlese-Reihenfolge
+   übernimmt der Browser. Fallback auf prompt/confirm für Uralt-Browser. */
+const dlg=$("dlg");
+// Nach dem Schließen alle Texte leeren — sonst „spukt" der alte Titel unsichtbar
+// im DOM (verwirrt Vorleser und Text-Selektoren gleichermaßen).
+function dlgLeeren(){ $("dlgtitel").textContent=""; $("dlgtext").textContent="";
+  $("dlgok").textContent="OK"; $("dlgin").value=""; }
+function frage(titel,{text="",vorgabe="",platzhalter="",okText="Übernehmen",numerisch=false}={}){
+  if(!dlg.showModal) { const v=prompt(titel+(text?"\n\n"+text:""),vorgabe); return Promise.resolve(v); }
+  return new Promise(res=>{
+    $("dlgtitel").textContent=titel;
+    $("dlgtext").textContent=text; $("dlgtext").style.display=text?"":"none";
+    const inp=$("dlgin"); inp.style.display=""; inp.value=vorgabe; inp.placeholder=platzhalter;
+    inp.inputMode=numerisch?"numeric":"text";
+    const ok=$("dlgok"); ok.textContent=okText; ok.classList.remove("gefahr");
+    dlg.returnValue="";
+    dlg.onclose=()=>{ const v=dlg.returnValue==="ok"?inp.value:null; dlgLeeren(); res(v); };
+    dlg.showModal(); inp.focus(); inp.select();
+  });
+}
+function bestaetige(titel,text,okText="OK",gefahr=false){
+  if(!dlg.showModal) return Promise.resolve(confirm(titel+(text?"\n\n"+text:"")));
+  return new Promise(res=>{
+    $("dlgtitel").textContent=titel;
+    $("dlgtext").textContent=text; $("dlgtext").style.display=text?"":"none";
+    $("dlgin").style.display="none";
+    const ok=$("dlgok"); ok.textContent=okText; ok.classList.toggle("gefahr",gefahr);
+    dlg.returnValue="";
+    dlg.onclose=()=>{ const o=dlg.returnValue==="ok"; dlgLeeren(); res(o); };
+    dlg.showModal();
+  });
+}
+
+/* ================= Wach bleiben beim Scannen =================
+   Screen-Wake-Lock: solange die Kamera läuft, geht der Bildschirm nicht aus —
+   im Keller mit Handschuhen will niemand alle 30 s das Display wecken. */
+let wachhalter=null;
+async function halteWach(){ try{ if("wakeLock" in navigator) wachhalter=await navigator.wakeLock.request("screen"); }catch(e){} }
+function lassSchlafen(){ try{ wachhalter&&wachhalter.release(); }catch(e){} wachhalter=null; }
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&S.screen==="scan"&&S.stream) halteWach(); });
 
 /* ================= Foto ================= */
 let photoCb=null;
@@ -1175,9 +1265,9 @@ function filterArchiv(q){q=(q||"").toLowerCase();
     el.style.display=el.dataset.p.toLowerCase().includes(q)?"":"none";});}
 function exportArchiv(){const s=S.archivSel;if(s)sendenFuer(s.projekt,s.modus,s.mieter);}
 // Löschen mit Warnung → in den Papierkorb (rückgängig machbar).
-function listeLoeschen(p,m){
+async function listeLoeschen(p,m){
   const g=archivGruppen().find(x=>x.projekt===p&&x.modus===m), n=g?g.n:0;
-  if(!confirm(`Liste „${p}" (${m==="abbau"?"Abbau":"Aufbau"}) mit ${n} ${nomen(n,"Gerät","Geräten")} löschen?\n\nSie wandert in den Papierkorb und lässt sich dort wiederherstellen.`)) return;
+  if(!await bestaetige(`Liste löschen?`,`„${p}" (${m==="abbau"?"Abbau":"Aufbau"}) mit ${n} ${nomen(n,"Gerät","Geräten")}.\nSie wandert in den Papierkorb und lässt sich dort wiederherstellen.`,"Löschen",true)) return;
   const ts=Date.now();
   S.rows.forEach(r=>{ if(r.projekt===p&&r.modus===m&&!r.geloescht){ r.geloescht=ts; DB.put(r); } });
   toast("Liste gelöscht — im Papierkorb wiederherstellbar");
@@ -1188,9 +1278,9 @@ function listeWiederherstellen(p,m){
   toast("Liste wiederhergestellt"); render();
 }
 // Endgültig entfernen — mit zweiter, klarer Warnung (nicht umkehrbar).
-function listeEndgueltig(p,m){
+async function listeEndgueltig(p,m){
   const g=archivGruppen(true).find(x=>x.projekt===p&&x.modus===m), n=g?g.n:0;
-  if(!confirm(`Liste „${p}" ENDGÜLTIG löschen? ${n} ${nomen(n,"Gerät","Geräten")}.\n\nDas kann NICHT rückgängig gemacht werden.`)) return;
+  if(!await bestaetige("Endgültig löschen?",`„${p}" mit ${n} ${nomen(n,"Gerät","Geräten")}.\nDas kann NICHT rückgängig gemacht werden.`,"Endgültig löschen",true)) return;
   S.rows.filter(r=>r.projekt===p&&r.modus===m&&r.geloescht).forEach(r=>DB.del(r.local_id));
   S.rows=S.rows.filter(r=>!(r.projekt===p&&r.modus===m&&r.geloescht));
   toast("Endgültig gelöscht"); render();
@@ -1298,12 +1388,12 @@ async function uebernehmen(){
   const v=parseInt(S.buf,10); if(isNaN(v))return;
   const auf=refWert(S.pending.code);
   const warn=unplausibel(v,auf,S.cfg.modus);
-  if(warn&&!confirm(warn+"\n\nStimmt der Wert wirklich — trotzdem speichern?")) return;
+  if(warn&&!await bestaetige("Sicher?",warn,"Trotzdem speichern",true)) return;
   // Roadmap #6: Foto-Erinnerung/-Pflicht (Stufe kommt vom Büro/Server).
   if(!S.pending.foto){
     const stufe=fotoStufe();
     if(stufe==="pflicht"){ toast("Ohne Foto vom Zähler geht es nicht — Büro-Vorgabe"); return; }
-    if(stufe==="hinweis"&&!confirm("Kein Foto vom Zähler.\n\nOhne Beleg speichern?")) return;
+    if(stufe==="hinweis"&&!await bestaetige("Kein Foto vom Zähler","Der Beleg fürs Büro fehlt. Ohne Foto speichern?","Ohne Foto speichern")) return;
   }
   const r={local_id:crypto.randomUUID(),code:S.pending.code,wert:v,foto:S.pending.foto||null,
     geraetetyp_id:S.pending.geraetetyp_id||null,standort:(S.pending.standort||"").trim()||null,
@@ -1318,8 +1408,10 @@ async function uebernehmen(){
   else toast(r.code+" gespeichert");
   go("scan"); syncen();
 }
-function tippen(){
-  const v=prompt("Nummer vom Etikett (12-stellig, ohne Bindestrich)"); if(!v)return;
+async function tippen(){
+  const v=await frage("Nummer eintippen",{text:"Die Ziffern vom Etikett, ohne Bindestrich.",
+    platzhalter:"z. B. 800000006120",numerisch:true,okText:"Übernehmen"});
+  if(!v)return;
   const c=v.trim().replace(/\D/g,"");
   if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}
   onScan(c);
@@ -1330,7 +1422,8 @@ function tippen(){
 // den ursprünglichen Wert in kwh_alt — nichts verschwindet stillschweigend.
 async function korrigiere(id){
   const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
-  const v=prompt("Neuer Zählerstand für "+r.code+" (bisher "+fmt(r.wert)+" kWh)",String(r.wert).replace(".",","));
+  const v=await frage("Zählerstand korrigieren",{text:r.code+" — bisher "+fmt(r.wert)+" kWh.",
+    vorgabe:String(r.wert).replace(".",","),numerisch:true,okText:"Korrigieren"});
   if(v==null||!v.trim()) return;
   const kwh=Number(v.trim().replace(",","."));
   if(!isFinite(kwh)||kwh<0){toast("Ungültiger Zählerstand");return}
@@ -1349,7 +1442,8 @@ async function korrigiere(id){
 // sind gesperrt. Der Server behält die erste Nummer in code_alt.
 async function korrigiereCode(id){
   const r=S.rows.find(x=>x.local_id===id); if(!r||r.geloescht) return;
-  const v=prompt("Neue Etikettennummer (bisher "+r.code+")",r.code);
+  const v=await frage("Nummer korrigieren",{text:"Bisher "+r.code+".",
+    vorgabe:r.code,numerisch:true,okText:"Korrigieren"});
   if(v==null||!v.trim()) return;
   const c=ohnePruefziffer(v.trim().replace(/\D/g,""));
   if(!/^\d{6,14}$/.test(c)){toast("Das sieht nicht nach einer Etikettennummer aus");return}

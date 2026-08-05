@@ -68,10 +68,12 @@ const setup = async (page, { code = 'CODE1', projekt = '2026 033996', mieter = '
   await page.click('text=Loslegen');
 };
 const onScanScreen = page => page.waitForSelector('.stage', { timeout: 8000 });
+// Field-Dialog (natives <dialog>) statt prompt(): Eingabe füllen, OK antippen.
 const tippen = async (page, code) => {
   await onScanScreen(page);
-  page.once('dialog', d => d.accept(code));
-  await page.click('text=Nummer eintippen');
+  await page.click('button.btn:has-text("Nummer eintippen")');
+  await page.fill('#dlgin', code);
+  await page.click('#dlgok');
 };
 const crumb = page => page.$eval('.crumb', el => el.textContent.trim());
 
@@ -136,8 +138,9 @@ try {
     check('Liste-Crumb Plural "2 Geräte"', (await crumb(page)) === '2 Geräte');
 
     // Korrektur (vertippt): Wert antippen -> neuer Stand -> geht als "korrigieren" raus
-    page.once('dialog', d => d.accept('4300'));
     await page.click('.row .val.korr');
+    await page.fill('#dlgin', '4300');
+    await page.click('#dlgok');
     await page.waitForTimeout(1000);
     const valNeu = await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''));
     check('Korrektur: Liste zeigt neuen Wert (4.300)', valNeu.includes('4.300'));
@@ -145,8 +148,9 @@ try {
     check('Korrigierte Zeile wieder synced (↑)', (await page.$eval('.row .st', e => e.textContent.trim())) === '↑');
 
     // Ungültige Eingabe wird abgewiesen, Wert bleibt
-    page.once('dialog', d => d.accept('abc'));
     await page.click('.row .val.korr');
+    await page.fill('#dlgin', 'abc');
+    await page.click('#dlgok');
     await page.waitForTimeout(500);
     check('Korrektur: Unsinn wird abgewiesen', (await page.$eval('.row .val', e => e.textContent.replace(/\s/g, ''))).includes('4.300'));
 
@@ -157,16 +161,18 @@ try {
     check('12-Steller bleibt unverändert', ean[2] === '123456789012');
 
     // Nummern-Korrektur: Code antippen -> neue Nummer (mit Prüfziffer, wird gestutzt)
-    page.once('dialog', d => d.accept('5100000026095'));
     await page.click('.row .id .korr');
+    await page.fill('#dlgin', '5100000026095');
+    await page.click('#dlgok');
     await page.waitForTimeout(1000);
     const idNeu = await page.$eval('.row .id', e => e.textContent);
     check('Nummer korrigiert + Prüfziffer gestutzt (510000002609)', idNeu.includes('510000002609'));
     check('Nummern-Korrektur ging als "korrigieren" mit code raus', calls.some(c => c.aktion === 'korrigieren' && c.code === '510000002609'));
 
     // Doppel-Wächter: Nummer der zweiten Zeile auf die erste setzen -> abgelehnt
-    page.once('dialog', d => d.accept('510000002609'));
     await page.click('.row:nth-of-type(2) .id .korr');
+    await page.fill('#dlgin', '510000002609');
+    await page.click('#dlgok');
     await page.waitForTimeout(500);
     const zweite = await page.$eval('.row:nth-of-type(2) .id', e => e.textContent);
     check('Doppel-Wächter: Nummer bleibt bei Kollision unverändert', zweite.includes('222333444555'));
@@ -220,8 +226,8 @@ try {
     check('Abbau: Aufbau-Startstand wird angezeigt', (await page.$eval('.banner.amber', e => e.textContent).catch(() => '')).includes('1.000'));
     for (const n of '900') await page.click(`.pad button:has-text("${n}")`);
     // Neu (#3): kleiner-als-Aufbau löst eine Plausibilitäts-Rückfrage aus — bestätigen.
-    page.once('dialog', d => d.accept());
     await page.click('text=Speichern');
+    await page.click('#dlgok');
     await page.waitForTimeout(800);
     await page.click('button:has-text("Liste")');
     await page.waitForTimeout(700);
@@ -362,8 +368,8 @@ try {
     check('Vor Löschen: Liste im Archiv', (await page.$$('#archivliste .arow')).length >= 1);
     await page.click('.arow');
     await page.waitForTimeout(300);
-    page.once('dialog', d => d.accept());   // Warnung „wirklich löschen?" bestätigen
-    await page.click('text=Liste löschen');
+    await page.click('text=Liste löschen');   // Warnung im Field-Dialog bestätigen
+    await page.click('#dlgok');
     await page.waitForTimeout(400);
     check('Nach Löschen: Papierkorb-Button erscheint', await page.$('button:has-text("Papierkorb (")') !== null);
     check('Nach Löschen: Archiv-Liste leer', (await page.$$('#archivliste .arow')).length === 0);
@@ -393,11 +399,11 @@ try {
     if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
     // 7-stelliger Wert (≥ 1.000.000) → Plausibilitäts-Rückfrage
     for (const n of '1234567') await page.click(`.pad button:has-text("${n}")`);
-    let gefragt = false;
-    page.once('dialog', d => { gefragt = true; d.accept(); });
     await page.click('text=Speichern');
+    await page.waitForSelector('#dlg[open]', { timeout: 5000 });
+    check('Zählerstand: unplausibler Wert fragt nach', await page.$('#dlg[open]') !== null);
+    await page.click('#dlgok');
     await page.waitForTimeout(500);
-    check('Zählerstand: unplausibler Wert fragt nach', gefragt);
     await page.click('button:has-text("Liste")');
     await page.waitForTimeout(500);
     check('Zählerstand: nach Bestätigung gespeichert', (await crumb(page)) === '1 Gerät');
@@ -485,11 +491,12 @@ try {
     await page.waitForTimeout(400);
     if (await page.$('.typen')) { await page.click('.typen button'); await page.waitForTimeout(300); }
     for (const n of '4217') await page.click(`.pad button:has-text("${n}")`);
-    let fotoGefragt = false;
-    page.once('dialog', d => { fotoGefragt = d.message().includes('Foto'); d.accept(); });
     await page.click('text=Speichern');
-    await page.waitForTimeout(600);
+    await page.waitForSelector('#dlg[open]', { timeout: 5000 });
+    const fotoGefragt = (await page.$eval('#dlgtitel', e => e.textContent)).includes('Foto');
     check('Foto-Hinweis: ohne Foto wird nachgefragt', fotoGefragt);
+    await page.click('#dlgok');
+    await page.waitForTimeout(600);
     await page.click('button:has-text("Liste")');
     await page.waitForTimeout(500);
     check('Foto-Hinweis: nach Bestätigung gespeichert', (await crumb(page)) === '1 Gerät');
