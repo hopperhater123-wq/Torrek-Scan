@@ -60,6 +60,7 @@ Backend ist eine Supabase Edge Function (`/functions/v1/torrek-scan`), authentif
 | `sw.js` | Service Worker (cacht App-Shell + Libs; Edge Function bleibt unberührt) |
 | `manifest.webmanifest`, `icon.svg` | PWA-Manifest + Icon (installierbar) |
 | `e2e.mjs` | hermetischer E2E-Golden-Path (Playwright) |
+| `THIRD-PARTY-NOTICES.md` | Lizenzen der gebündelten Bibliotheken (MIT, Apache-2.0) |
 | `README.md` | dieses Dokument |
 
 ## Screens
@@ -74,6 +75,16 @@ Suche) → `archivDetail` / `serverArchiv` und `papierkorb` (gelöschte Listen w
 Statisch ausliefern, z. B. `python3 -m http.server` im Ordner, dann `index.html` im Browser
 öffnen. Kamera und Service Worker brauchen `https` bzw. `localhost`. Dank lokal gebündelter
 Libs startet und scannt die App auch **beim ersten Mal offline**; nur Sync/Backend braucht Netz.
+
+## Lizenzen
+
+Die gebündelten Bibliotheken sind Open Source und permissiv lizenziert:
+**`@zxing/library` 0.21.3 (MIT)** und **SheetJS `xlsx` 0.18.5 (Apache-2.0)** —
+unverändert übernommen; vollständige Lizenztexte in `THIRD-PARTY-NOTICES.md`
+(Pflicht bei Weiterverbreitung, die dieses öffentliche Repo darstellt).
+Der Torrek-Scan-Code selbst trägt bewusst keine Open-Source-Lizenz
+(Standard: alle Rechte vorbehalten); ob das Repo eine Lizenz bekommen soll,
+ist Entscheidung des Inhabers.
 
 ## Offline & Installierbar
 
